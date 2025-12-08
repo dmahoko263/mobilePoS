@@ -1,0 +1,67 @@
+name: pos_tablet_app
+description: A POS system for Lifetimes Images.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Core & Networking ---
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  path: ^1.9.0
+  url_launcher: ^6.3.2
+  share_plus: ^12.0.1
+  path_provider: ^2.1.5
+  intl: ^0.19.0
+
+  # --- Database (Isar) ---
+  isar: ^3.1.0
+  isar_flutter_libs: ^3.1.0+1
+
+  # --- Printing & PDF ---
+  pdf: ^3.10.4
+  printing: ^5.11.1
+
+  # --- POS Receipt Generation ---
+  # REMOVED 'flutter_esc_pos_utils' to avoid conflict. 
+  # We use 'esc_pos_utils_plus' below.
+  esc_pos_utils_plus: ^2.0.4
+
+  # --- Bluetooth Printer ---
+  blue_thermal_printer: ^1.2.3
+
+  # --- UI & Utilities ---
+  image_picker: ^1.2.1
+  file_picker: ^10.3.7
+  fl_chart: 0.68.0
+  flutter_launcher_icons: ^0.14.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+  # Code generators should go in dev_dependencies
+  build_runner: ^2.4.13
+  isar_generator: ^3.1.0
+
+# --- ICON CONFIGURATION ---
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 48
+
+# --- FLUTTER CONFIGURATION ---
+# This section MUST be at the root level, NOT inside dependencies
+flutter:
+  uses-material-design: true
