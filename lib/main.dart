@@ -22,7 +22,9 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Tablet POS',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        // Updated to match the Teal/Green theme from screenshots
+        primaryColor: const Color(0xFF009688),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF009688)),
         useMaterial3: true,
       ),
       home: const LoginScreen(),
@@ -41,8 +43,10 @@ class MainNavigationShell extends StatefulWidget {
 
 class _MainNavigationShellState extends State<MainNavigationShell> {
   int _selectedIndex = 0;
+  bool _isSidebarExpanded = true; // Controls open/close state
+
   final List<Widget> _screens = [];
-  final List<NavigationRailDestination> _destinations = [];
+  final List<_MenuItem> _menuItems = [];
 
   @override
   void initState() {
@@ -55,57 +59,45 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
     // 1. TERMINAL (Everyone sees this)
     _screens.add(PosScreen(cashierName: widget.currentUser.username));
-    _destinations.add(const NavigationRailDestination(
-      icon: Icon(Icons.point_of_sale),
-      label: Text('Terminal'),
-    ));
+    _menuItems.add(_MenuItem(icon: Icons.point_of_sale, label: 'Terminal'));
 
     // 2. MANAGEMENT SCREENS
     if (role == UserRole.admin ||
         role == UserRole.superAdmin ||
         role == UserRole.assistant) {
       _screens.add(const SalesHistoryScreen());
-      _destinations.add(const NavigationRailDestination(
-        icon: Icon(Icons.receipt),
-        label: Text('History'),
-      ));
+      _menuItems.add(_MenuItem(icon: Icons.history, label: 'History'));
 
       _screens.add(const InventoryDashboardScreen());
-      _destinations.add(const NavigationRailDestination(
-        icon: Icon(Icons.inventory_2),
-        label: Text('Inventory'),
-      ));
+      _menuItems
+          .add(_MenuItem(icon: Icons.inventory_2_outlined, label: 'Inventory'));
 
       _screens.add(const DashboardScreen());
-      _destinations.add(const NavigationRailDestination(
-        icon: Icon(Icons.dashboard),
-        label: Text('Dashboard'),
-      ));
+      _menuItems
+          .add(_MenuItem(icon: Icons.dashboard_outlined, label: 'Dashboard'));
     }
 
     // 3. SENSITIVE SCREENS
     if (role == UserRole.admin || role == UserRole.superAdmin) {
       _screens.add(const UserManagementScreen());
-      _destinations.add(const NavigationRailDestination(
-        icon: Icon(Icons.people),
-        label: Text('Users'),
-      ));
+      _menuItems.add(_MenuItem(icon: Icons.people_outline, label: 'Users'));
 
       _screens.add(const SettingsScreen());
-      _destinations.add(const NavigationRailDestination(
-        icon: Icon(Icons.settings),
-        label: Text('Settings'),
-      ));
+      _menuItems
+          .add(_MenuItem(icon: Icons.settings_outlined, label: 'Settings'));
     }
 
     // 4. SHOPS (Super Admin Only)
     if (role == UserRole.superAdmin) {
       _screens.add(const ShopManagementScreen());
-      _destinations.add(const NavigationRailDestination(
-        icon: Icon(Icons.store),
-        label: Text('Shops'),
-      ));
+      _menuItems.add(
+          _MenuItem(icon: Icons.store_mall_directory_outlined, label: 'Shops'));
     }
+  }
+
+  void _onLogout() {
+    Navigator.pushReplacement(
+        context, MaterialPageRoute(builder: (_) => const LoginScreen()));
   }
 
   @override
@@ -113,52 +105,182 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     return Scaffold(
       body: Row(
         children: [
-          NavigationRail(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (int index) {
-              setState(() {
-                _selectedIndex = index;
-              });
-            },
-            extended: true,
-            minExtendedWidth: 200,
-            leading: Column(
-              children: [
-                const Icon(Icons.account_circle, size: 40, color: Colors.blue),
-                const SizedBox(height: 8),
-                Text(widget.currentUser.username.toUpperCase(),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 12)),
-                Text(widget.currentUser.role.name,
-                    style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                const SizedBox(height: 20),
-              ],
+          // ---------------------------------------------
+          // LEFT SIDEBAR (Collapsible)
+          // ---------------------------------------------
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            width: _isSidebarExpanded ? 260 : 70,
+            decoration: const BoxDecoration(
+              color: Color(0xFF009688), // Teal sidebar color
             ),
-            trailing: Expanded(
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 20.0),
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.logout, color: Colors.red),
-                    label: const Text('Logout',
-                        style: TextStyle(color: Colors.red)),
-                    onPressed: () {
-                      Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const LoginScreen()));
+            child: Column(
+              children: [
+                // 1. HEADER (Logo + Toggle)
+                Container(
+                  height: 80,
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      // Toggle Button
+                      IconButton(
+                        icon: const Icon(Icons.menu, color: Colors.white),
+                        onPressed: () {
+                          setState(() {
+                            _isSidebarExpanded = !_isSidebarExpanded;
+                          });
+                        },
+                      ),
+                      // App Name (Hidden if collapsed)
+                      if (_isSidebarExpanded) ...[
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            "POS System",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ]
+                    ],
+                  ),
+                ),
+
+                const Divider(color: Colors.white24, height: 1),
+
+                // 2. MENU ITEMS LIST
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _menuItems.length,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    itemBuilder: (context, index) {
+                      final item = _menuItems[index];
+                      final isSelected = _selectedIndex == index;
+
+                      return InkWell(
+                        onTap: () => setState(() => _selectedIndex = index),
+                        child: Container(
+                          height: 50,
+                          margin: const EdgeInsets.symmetric(
+                              vertical: 4, horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.white.withOpacity(0.2)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 16),
+                              Icon(
+                                item.icon,
+                                color:
+                                    isSelected ? Colors.white : Colors.white70,
+                                size: 24,
+                              ),
+                              if (_isSidebarExpanded) ...[
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Text(
+                                    item.label,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : Colors.white70,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ]
+                            ],
+                          ),
+                        ),
+                      );
                     },
                   ),
                 ),
-              ),
+
+                const Divider(color: Colors.white24, height: 1),
+
+                // 3. USER PROFILE / LOGOUT (Bottom)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  child: _isSidebarExpanded
+                      ? Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: Colors.white,
+                              radius: 18,
+                              child: Text(
+                                widget.currentUser.username[0].toUpperCase(),
+                                style: const TextStyle(
+                                    color: Color(0xFF009688),
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.currentUser.username,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    widget.currentUser.role.name.toUpperCase(),
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon:
+                                  const Icon(Icons.logout, color: Colors.white),
+                              onPressed: _onLogout,
+                              tooltip: "Logout",
+                            )
+                          ],
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.logout, color: Colors.white),
+                          onPressed: _onLogout,
+                          tooltip: "Logout",
+                        ),
+                ),
+              ],
             ),
-            destinations: _destinations,
           ),
-          const VerticalDivider(thickness: 1, width: 1),
-          Expanded(child: _screens[_selectedIndex]),
+
+          // ---------------------------------------------
+          // RIGHT CONTENT AREA
+          // ---------------------------------------------
+          Expanded(
+            child: _screens[_selectedIndex],
+          ),
         ],
       ),
     );
   }
+}
+
+// Simple Helper Class for Menu Items
+class _MenuItem {
+  final IconData icon;
+  final String label;
+
+  _MenuItem({required this.icon, required this.label});
 }

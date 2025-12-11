@@ -28,6 +28,10 @@ class PrinterService {
     if (Platform.isAndroid) {
       if (device == null) return false;
       try {
+        // Force disconnect if already connected to ensure clean slate
+        if ((await bluetooth.isConnected) == true) {
+          await bluetooth.disconnect();
+        }
         return (await bluetooth.connect(device)) ?? false;
       } catch (e) {
         print("Connection Error: $e");
@@ -37,11 +41,24 @@ class PrinterService {
     return true; // Windows is always "ready"
   }
 
+  // --- 3. DISCONNECT (NEW METHOD - FIXES PRINTING ONCE ISSUE) ---
+  Future<void> disconnect() async {
+    if (Platform.isAndroid) {
+      try {
+        if ((await bluetooth.isConnected) == true) {
+          await bluetooth.disconnect();
+        }
+      } catch (e) {
+        print("Error disconnecting: $e");
+      }
+    }
+  }
+
   Future<bool> get isConnected async {
     return await BlueThermalPrinter.instance.isConnected ?? false;
   }
 
-  // --- 3. MAIN PRINT FUNCTION ---
+  // --- 4. MAIN PRINT FUNCTION ---
   Future<void> printReceipt({
     required Order order,
     required List<OrderItem> items,
@@ -53,7 +70,7 @@ class PrinterService {
     required String cashierName,
     double? tendered,
     double? change,
-    Shop? branchShop, // <--- NEW PARAMETER
+    Shop? branchShop,
   }) async {
     // WINDOWS: PDF Printing
     if (Platform.isWindows) {
@@ -78,7 +95,7 @@ class PrinterService {
         bool success = await autoConnect();
         if (!success) return;
       }
-      ;
+
       await _printAndroidBluetooth(
           order,
           items,
@@ -94,7 +111,7 @@ class PrinterService {
     }
   }
 
-// --- AUTO CONNECT ---
+  // --- AUTO CONNECT ---
   Future<bool> autoConnect() async {
     if (!Platform.isAndroid) return true; // Windows always true
 
@@ -131,8 +148,7 @@ class PrinterService {
       String cashierName,
       double? tendered,
       double? change,
-      Shop? branchShop // <--- Added here
-      ) async {
+      Shop? branchShop) async {
     final doc = pw.Document();
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final numFormat = NumberFormat("#,##0.00", "en_US");
@@ -244,9 +260,6 @@ class PrinterService {
   }
 
   // ============================================================
-  // LOGIC B: ANDROID BLUETOOTH PRINTING
-  // ============================================================
-// ============================================================
   // LOGIC B: ANDROID BLUETOOTH PRINTING (INK SAVER MODE)
   // ============================================================
   Future<void> _printAndroidBluetooth(
@@ -266,19 +279,16 @@ class PrinterService {
     List<int> bytes = [];
 
     // HELPER: Create a light dashed line instead of a solid block line
-    // 32 dashes fits well on 58mm paper with normal font
     final String dashedLine = '--------------------------------';
 
     try {
       final SettingsService settings = SettingsService();
       final String? customLogoPath = await settings.getShopLogo();
 
-      // OPTIONAL: If the logo is too dark, comment this block out to save more ink
       if (customLogoPath != null && File(customLogoPath).existsSync()) {
         final Uint8List imgBytes = await File(customLogoPath).readAsBytes();
         final image = img.decodeImage(imgBytes);
         if (image != null) {
-          // Resize to smaller width to save ink
           final resized = img.copyResize(image, width: 250);
           bytes += generator.image(resized);
         }
@@ -287,11 +297,11 @@ class PrinterService {
       print(e);
     }
 
-    // 1. HEADER (Reduced from size2 to size1)
+    // 1. HEADER
     bytes += generator.text(shopDetails['name'] ?? '',
         styles: const PosStyles(
             align: PosAlign.center,
-            bold: true, // Keep bold, but remove size2
+            bold: true,
             height: PosTextSize.size1,
             width: PosTextSize.size1));
 
@@ -304,7 +314,7 @@ class PrinterService {
           styles: const PosStyles(align: PosAlign.center));
     }
 
-    // 2. BRANCH (Standard text, no bold unless necessary)
+    // 2. BRANCH
     if (branchShop != null) {
       bytes += generator.feed(1);
       bytes += generator.text('Branch: ${branchShop.name}',
@@ -315,13 +325,12 @@ class PrinterService {
       }
     }
 
-    // Light separator
     bytes += generator.text(dashedLine,
         styles: const PosStyles(align: PosAlign.center));
 
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
-    // Receipt Info (Plain text)
+    // Receipt Info
     bytes += generator.row([
       PosColumn(text: 'Rcpt: #${order.id}', width: 6),
       PosColumn(
@@ -331,11 +340,10 @@ class PrinterService {
     ]);
     bytes += generator.text('Cashier: $cashierName');
 
-    // Light separator
     bytes += generator.text(dashedLine,
         styles: const PosStyles(align: PosAlign.center));
 
-    // Column Headers (Removed Bold)
+    // Column Headers
     bytes += generator.row([
       PosColumn(text: 'Item', width: 6),
       PosColumn(text: 'Qty', width: 2),
@@ -358,21 +366,19 @@ class PrinterService {
       ]);
     }
 
-    // Light separator
     bytes += generator.text(dashedLine,
         styles: const PosStyles(align: PosAlign.center));
 
-    // TOTAL (Keep Bold, but size1)
+    // TOTAL
     bytes += generator.row([
       PosColumn(
           text: 'TOTAL $currency:',
           width: 6,
-          styles: const PosStyles(bold: true)), // Removed size2
+          styles: const PosStyles(bold: true)),
       PosColumn(
           text: totalPaid.toStringAsFixed(2),
           width: 6,
-          styles: const PosStyles(
-              bold: true, align: PosAlign.right)), // Removed size2
+          styles: const PosStyles(bold: true, align: PosAlign.right)),
     ]);
 
     if (tendered != null && change != null) {
@@ -397,16 +403,13 @@ class PrinterService {
 
     bytes += generator.feed(1);
 
-    // Footer (Removed Bold, Removed Background)
+    // Footer
     bytes += generator.text('Thank you for your support!',
         styles: const PosStyles(align: PosAlign.center));
 
     bytes += generator.text('Powered by Lifetime Images',
         styles: const PosStyles(
-            align: PosAlign.center,
-            bold: false, // Turn off bold
-            reverse: false // Ensure no black background
-            ));
+            align: PosAlign.center, bold: false, reverse: false));
 
     bytes += generator.feed(2);
     bytes += generator.cut();

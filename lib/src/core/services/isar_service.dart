@@ -57,6 +57,12 @@ class IsarService {
     isar.writeTxnSync<int>(() => isar.products.putSync(newProduct));
   }
 
+  // --- NEW: Needed for Sales Tracking ---
+  Future<Product?> getProductById(Id id) async {
+    final isar = await db;
+    return await isar.products.get(id);
+  }
+
   Future<List<Product>> getAllProducts() async {
     final isar = await db;
     // Super Admin sees all
@@ -126,50 +132,53 @@ class IsarService {
     });
   }
 
-  // --- NEW: CHECK OTHER BRANCHES ---
-  Future<List<Map<String, dynamic>>> checkOtherShopsStock(
-      String productName, String? sku) async {
+  // -------------------------
+  // INTER-BRANCH STOCK CHECK
+  // -------------------------
+  Future<List<Map<String, dynamic>>> checkOtherBranches(
+      String productName, String sku) async {
     final isar = await db;
-    if (currentShopId == null) return [];
 
-    // 1. Get Current Shop's City
-    final currentShop = await isar.shops.get(currentShopId!);
-    if (currentShop?.city == null) return [];
+    // If we don't know who is asking, we can't exclude them.
+    // But assuming a Shop Admin is logged in:
+    final myShopId = currentShopId;
 
-    // 2. Find other shops in the SAME city
-    final nearbyShops = await isar.shops
-        .filter()
-        .cityEqualTo(currentShop!.city!, caseSensitive: false)
-        .and()
-        .not()
-        .idEqualTo(currentShopId!)
-        .findAll();
+    // 1. Get ALL shops except the current one
+    var otherShopsQuery = isar.shops.filter().not().idEqualTo(myShopId ?? -1);
 
-    if (nearbyShops.isEmpty) return [];
+    final otherShops = await otherShopsQuery.findAll();
 
-    List<Map<String, dynamic>> availableLocations = [];
+    List<Map<String, dynamic>> results = [];
 
-    // 3. Check each shop for the product
-    for (var shop in nearbyShops) {
-      final productInShop = await isar.products
+    // 2. Iterate through other shops to find the match
+    for (var shop in otherShops) {
+      final match = await isar.products
           .filter()
-          .shopIdEqualTo(shop.id)
+          .shopIdEqualTo(shop.id) // Look inside that specific shop
           .and()
           .group((q) => q
-              .nameEqualTo(productName, caseSensitive: false)
+              .skuEqualTo(sku) // Match SKU (Best match)
               .or()
-              .skuEqualTo(sku ?? "NO_SKU_MATCH"))
+              .nameEqualTo(productName, caseSensitive: false)) // Or Name
           .findFirst();
 
-      if (productInShop != null && productInShop.quantity > 0) {
-        availableLocations.add({
+      // 3. If found and has stock, add to report
+      if (match != null && match.quantity > 0) {
+        results.add({
           "shopName": shop.name,
+          "city": shop.city,
           "address": shop.address,
-          "stock": productInShop.quantity
+          "quantity": match.quantity,
+          "phone": shop.phone,
         });
       }
     }
-    return availableLocations;
+
+    // Sort by highest stock first
+    results
+        .sort((a, b) => (b['quantity'] as int).compareTo(a['quantity'] as int));
+
+    return results;
   }
 
   // -------------------------
@@ -182,19 +191,8 @@ class IsarService {
     await isar.writeTxn(() async {
       await isar.orders.put(newOrder);
 
-      if (newOrder.items != null) {
-        for (var item in newOrder.items!) {
-          final product = await isar.products
-              .filter()
-              .shopIdEqualTo(currentShopId)
-              .nameEqualTo(item.productName!)
-              .findFirst();
-          if (product != null) {
-            product.quantity = product.quantity - (item.quantity ?? 0);
-            await isar.products.put(product);
-          }
-        }
-      }
+      // Note: We handle Stock Decrement in the UI logic or here.
+      // If logic is moved here fully, ensure it doesn't double count.
     });
   }
 
@@ -301,55 +299,21 @@ class IsarService {
   }
 
   // -------------------------
-  // INTER-BRANCH STOCK CHECK
+  // REAL-TIME STREAMS
   // -------------------------
-  Future<List<Map<String, dynamic>>> checkOtherBranches(
-      String productName, String sku) async {
+
+  // FIXED: Using async* and yield* to handle the Future<Isar>
+  Stream<List<Product>> streamAllProducts() async* {
     final isar = await db;
 
-    // If we don't know who is asking, we can't exclude them.
-    // But assuming a Shop Admin is logged in:
-    final myShopId = currentShopId;
-
-    // 1. Get ALL shops except the current one
-    // (You can filter by City here if you only want nearby branches)
-    var otherShopsQuery = isar.shops.filter().not().idEqualTo(myShopId ?? -1);
-
-    // Optional: Uncomment next line to restrict to SAME CITY only
-    // otherShopsQuery = otherShopsQuery.cityEqualTo(myCityString);
-
-    final otherShops = await otherShopsQuery.findAll();
-
-    List<Map<String, dynamic>> results = [];
-
-    // 2. Iterate through other shops to find the match
-    for (var shop in otherShops) {
-      final match = await isar.products
+    // Logic: If Super Admin, stream all. If Shop Admin, stream only shop items.
+    if (currentShopId == null) {
+      yield* isar.products.where().watch(fireImmediately: true);
+    } else {
+      yield* isar.products
           .filter()
-          .shopIdEqualTo(shop.id) // Look inside that specific shop
-          .and()
-          .group((q) => q
-              .skuEqualTo(sku) // Match SKU (Best match)
-              .or()
-              .nameEqualTo(productName, caseSensitive: false)) // Or Name
-          .findFirst();
-
-      // 3. If found and has stock, add to report
-      if (match != null && match.quantity > 0) {
-        results.add({
-          "shopName": shop.name,
-          "city": shop.city,
-          "address": shop.address,
-          "quantity": match.quantity,
-          // "phone": shop.contactNumber ?? "N/A", // Useful to call them
-        });
-      }
+          .shopIdEqualTo(currentShopId)
+          .watch(fireImmediately: true);
     }
-
-    // Sort by highest stock first
-    results
-        .sort((a, b) => (b['quantity'] as int).compareTo(a['quantity'] as int));
-
-    return results;
   }
 }

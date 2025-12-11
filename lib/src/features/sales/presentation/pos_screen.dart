@@ -37,14 +37,20 @@ class _PosScreenState extends State<PosScreen> {
   final _customerAddressController = TextEditingController();
   final _searchController = TextEditingController();
   final _tenderedController = TextEditingController();
+  // NEW: State for the Navigation Sidebar
+  // bool _isNavSidebarOpen = false; // Start closed (or true if you prefer)
+  // NEW: Add this FocusNode
+  final FocusNode _searchFocusNode = FocusNode();
 
   // State
   List<CartItem> _cart = [];
+  String _shopName = "POS Terminal";
   BluetoothDevice? _selectedPrinter;
   double _zigRate = 0;
   double _taxRate = 0;
   double _discountAmount = 0;
   String _searchQuery = "";
+  bool _isNavSidebarOpen = false; // Start closed (or true if you prefer)
 
   // NEW: State for expanding/shrinking sidebar
   bool _isProductGridVisible = true;
@@ -53,15 +59,40 @@ class _PosScreenState extends State<PosScreen> {
   void initState() {
     super.initState();
     _loadRates();
+    // NEW: Request focus after the frame builds
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocusNode.requestFocus();
+    });
+  }
+
+// --- NEW: Helper for Sidebar Buttons ---
+  Widget _buildSidebarItem(
+      {required IconData icon,
+      required String label,
+      required VoidCallback onTap}) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.grey[800]),
+      title: Text(label,
+          style:
+              TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w600)),
+      onTap: onTap,
+      hoverColor: Colors.blue.withOpacity(0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    );
   }
 
   void _loadRates() async {
     final zig = await _settingsService.getZigRate();
     final tax = await _settingsService.getTaxRate();
+    final shop = await _isarService.getCurrentShop();
     setState(() {
       _zigRate = zig;
       _taxRate = tax;
     });
+    // NEW: Update title if shop exists
+    if (shop != null && shop.name.isNotEmpty) {
+      _shopName = shop.name;
+    }
   }
 
   // --- CART LOGIC ---
@@ -74,6 +105,8 @@ class _PosScreenState extends State<PosScreen> {
         _cart.add(CartItem(product: product));
       }
     });
+    // NEW: Refocus immediately so the next scan works
+    _searchFocusNode.requestFocus();
   }
 
   void _removeFromCart(int index) {
@@ -85,6 +118,13 @@ class _PosScreenState extends State<PosScreen> {
       }
       if (_cart.isEmpty) _discountAmount = 0;
     });
+  }
+
+  @override
+  void dispose() {
+    // NEW: Dispose the focus node
+    _searchFocusNode.dispose();
+    super.dispose();
   }
 
   // --- MATH LOGIC ---
@@ -488,6 +528,7 @@ class _PosScreenState extends State<PosScreen> {
       ..tenderedAmount = tendered
       ..changeAmount = change
       ..paymentCurrency = currency
+      ..paymentMethod = method
       ..customerName = _customerNameController.text.isEmpty
           ? 'Walk-in'
           : _customerNameController.text
@@ -519,6 +560,7 @@ class _PosScreenState extends State<PosScreen> {
           change: change,
           branchShop: branchShop,
         );
+        await _printerService.disconnect();
       }
     }
 
@@ -710,7 +752,16 @@ class _PosScreenState extends State<PosScreen> {
             });
           },
         ),
-        title: const Text('POS Terminal'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_shopName,
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (_shopName !=
+                "POS Terminal") // Optional: Show 'POS Terminal' as subtitle
+              const Text("POS Terminal", style: TextStyle(fontSize: 12)),
+          ],
+        ),
         actions: [
           Center(
             child: Padding(
@@ -736,6 +787,7 @@ class _PosScreenState extends State<PosScreen> {
                     padding: const EdgeInsets.all(8.0),
                     child: TextField(
                       controller: _searchController,
+                      focusNode: _searchFocusNode,
                       autofocus: true,
                       decoration: InputDecoration(
                         hintText: 'Scan Barcode or Type Name...',
@@ -745,6 +797,7 @@ class _PosScreenState extends State<PosScreen> {
                             onPressed: () {
                               _searchController.clear();
                               setState(() => _searchQuery = "");
+                              _searchFocusNode.requestFocus();
                             }),
                         border: const OutlineInputBorder(),
                       ),
@@ -760,6 +813,7 @@ class _PosScreenState extends State<PosScreen> {
                           if (exactMatch.quantity > 0) {
                             _addToCart(exactMatch);
                             _searchController.clear();
+                            _searchFocusNode.requestFocus();
                             setState(() => _searchQuery = "");
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -771,31 +825,41 @@ class _PosScreenState extends State<PosScreen> {
                   ),
 
                   // Grid
+                  // Grid
                   Expanded(
-                    child: Container(
-                      color: Colors.grey[100],
-                      padding: const EdgeInsets.all(8.0),
-                      child: FutureBuilder<List<Product>>(
-                        future: _searchQuery.isEmpty
-                            ? _isarService.getAllProducts()
-                            : _isarService.searchProducts(_searchQuery),
-                        builder: (context, snapshot) {
-                          if (!snapshot.hasData || snapshot.data!.isEmpty)
-                            return const Center(child: Text('No Items Found'));
-                          return GridView.builder(
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 3,
-                                    // FIXED: Changed from 1.1 to 0.75 to make cards taller
-                                    // and prevent 29 pixel overflow error
-                                    childAspectRatio: 0.75,
-                                    crossAxisSpacing: 10,
-                                    mainAxisSpacing: 10),
-                            itemCount: snapshot.data!.length,
-                            itemBuilder: (c, i) =>
-                                _buildProductCard(snapshot.data![i]),
-                          );
-                        },
+                    child: GestureDetector(
+                      // NEW: Tapping the background refocuses the barcode scanner
+                      onTap: () {
+                        _searchFocusNode.requestFocus();
+                      },
+                      // Ensures taps on empty space are captured
+                      behavior: HitTestBehavior.translucent,
+                      child: Container(
+                        color: Colors.grey[100],
+                        padding: const EdgeInsets.all(8.0),
+                        child: FutureBuilder<List<Product>>(
+                          future: _searchQuery.isEmpty
+                              ? _isarService.getAllProducts()
+                              : _isarService.searchProducts(_searchQuery),
+                          builder: (context, snapshot) {
+                            if (!snapshot.hasData || snapshot.data!.isEmpty)
+                              return const Center(
+                                  child: Text('No Items Found'));
+                            return GridView.builder(
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 3,
+                                      // FIXED: Changed from 1.1 to 0.75 to make cards taller
+                                      // and prevent 29 pixel overflow error
+                                      childAspectRatio: 0.75,
+                                      crossAxisSpacing: 10,
+                                      mainAxisSpacing: 10),
+                              itemCount: snapshot.data!.length,
+                              itemBuilder: (c, i) =>
+                                  _buildProductCard(snapshot.data![i]),
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),

@@ -29,7 +29,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       );
       return;
     }
-    await _reportService.printBalanceSheet(orders, 'Sales Report');
+
+    // FIX: Use named arguments 'orders:' and 'title:'
+    await _reportService.printBalanceSheet(
+        orders: orders, title: 'Sales Report');
   }
 
   @override

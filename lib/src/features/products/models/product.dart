@@ -1,59 +1,94 @@
+import 'package:flutter/material.dart'; // Needed for Colors in logic
 import 'package:isar/isar.dart';
 
-part 'product.g.dart'; // This file is generated automatically
+part 'product.g.dart';
 
 @collection
 class Product {
   Id id = Isar.autoIncrement;
 
   late String name;
+  late double price;
+  late double costPrice;
 
-  late double price; // Selling Price
-  late double costPrice; // Cost Price
-
-  late int quantity; // Current Stock Level
-  int initialQuantity =
-      0; // NEW: To track sales performance (Initial - Current)
+  late int quantity;
+  int initialQuantity = 0;
 
   late String category;
-  String? sku; // Barcode
+  String? sku;
 
-  // NEW: Link to Shop & Supplier
   @Index()
-  int? shopId; // Null means "Global" (All shops)
-  String? shopName; // Snapshot of shop name for display
-  String? supplierName; // NEW: Track who supplied this
+  int? shopId;
+  String? shopName;
+  String? supplierName;
+  String? imageUrl;
 
-  String? imageUrl; // NEW: For the dashboard icon
+  // --- NEW: STRATEGY CONFIGURATION FIELDS ---
 
-  // --- HELPER CALCULATIONS (Not stored in DB, calculated on the fly) ---
+  // The specific level where this item enters the "Yellow" zone
+  int reorderPoint = 10;
 
-  // Total value of stock at selling price
+  // How many days it takes for a supplier to deliver this item
+  int leadTimeDays = 7;
+
+  // Calculated average sales per day (velocity).
+  // Update this field whenever you close a "Day" or run a report.
+  double averageDailySales = 1.0;
+
+  // --- STRATEGY CALCULATIONS (Getters) ---
+
+  // 1. TRAFFIC LIGHT STRATEGY
+  @ignore
+  String get stockStatus {
+    if (quantity == 0) return 'Out of Stock'; // RED
+    if (quantity <= reorderPoint) return 'Critical'; // RED
+    if (quantity <= (reorderPoint * 1.5)) return 'Warning'; // YELLOW
+    return 'Healthy'; // GREEN
+  }
+
+  // 2. PREDICTIVE ORDERING (Days Sales of Inventory - DSI)
+  @ignore
+  int get daysUntilStockout {
+    if (averageDailySales <= 0) return 999; // Moving too slow to measure
+    return (quantity / averageDailySales).floor();
+  }
+
+  // Helper for UI Colors
+  @ignore
+  Color get statusColor {
+    switch (stockStatus) {
+      case 'Out of Stock':
+      case 'Critical':
+        return Colors.red;
+      case 'Warning':
+        return Colors.orange;
+      case 'Healthy':
+      default:
+        return Colors.green;
+    }
+  }
+
+  // 3. ABC ANALYSIS HELPER (Calculated via usage value)
+  // Note: True ABC requires comparing against all products,
+  // but this is a helper for the sort value.
+  @ignore
+  double get usageValue => costPrice * soldCount;
+
+  // EXISTING HELPERS
   @ignore
   double get totalStockValue => price * quantity;
-
-  // Total value of stock at cost price
   @ignore
   double get totalCostValue => costPrice * quantity;
-
-  // Items sold since last full restock
   @ignore
   int get soldCount => (initialQuantity - quantity).clamp(0, 999999);
-
-  // Sales performance (0.0 to 1.0)
-  @ignore
-  double get performance =>
-      initialQuantity == 0 ? 0 : soldCount / initialQuantity;
 }
 
-// NEW: Class to track Write-offs and Restocks history
 @collection
 class StockAdjustment {
   Id id = Isar.autoIncrement;
-
   int productId;
-  int quantityChange; // Positive = Restock, Negative = Write-off
-  String reason; // "Damaged", "Expired", "Theft", "Restock"
+  int quantityChange;
+  String reason;
   DateTime date;
 
   StockAdjustment(

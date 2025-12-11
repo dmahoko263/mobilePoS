@@ -16,15 +16,20 @@ class Order {
 
   List<OrderItem>? items;
 
-  String? cashierName; // Existing
+  String? cashierName;
 
   // --- NEW FIELDS ---
   String? customerName;
   String? customerPhone;
-  // NEW FIELDS
+
   double? tenderedAmount;
   double? changeAmount;
+
   String? paymentCurrency; // Stores "USD" or "ZiG"
+
+  // *** ADD THIS MISSING FIELD ***
+  String? paymentMethod; // Stores "Cash", "Swipe", "Ecocash", etc.
+
   @Index()
   int? shopId;
 }
