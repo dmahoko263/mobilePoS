@@ -257,8 +257,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         }).toList(),
                         onChanged: (String? newValue) {
-                          if (newValue != null)
+                          if (newValue != null) {
                             setState(() => _selectedTimeRange = newValue);
+                          }
                         },
                       ),
                     ],
@@ -346,12 +347,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           title: "Sales Trend (Last 7 Days)",
                           child: LineChart(
                             LineChartData(
-                              gridData: FlGridData(
+                              gridData: const FlGridData(
                                   show: true, drawVerticalLine: false),
                               titlesData: FlTitlesData(
-                                topTitles: AxisTitles(
+                                topTitles: const AxisTitles(
                                     sideTitles: SideTitles(showTitles: false)),
-                                rightTitles: AxisTitles(
+                                rightTitles: const AxisTitles(
                                     sideTitles: SideTitles(showTitles: false)),
                                 bottomTitles: AxisTitles(
                                   sideTitles: SideTitles(
@@ -384,7 +385,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   isCurved: true,
                                   color: Colors.blue,
                                   barWidth: 3,
-                                  dotData: FlDotData(show: true),
+                                  dotData: const FlDotData(show: true),
                                   belowBarData: BarAreaData(
                                       show: true,
                                       color: Colors.blue.withOpacity(0.1)),
@@ -398,7 +399,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Expanded(
                         flex: 1,
                         child: _buildChartContainer(
-                          title: "Revenue Share (${_selectedTimeRange})",
+                          title: "Revenue Share ($_selectedTimeRange)",
                           child: sortedChartShops.isEmpty
                               ? const Center(
                                   child: Text("No Data for selected period"))
@@ -459,18 +460,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           },
                                         ),
                                       ),
-                                      leftTitles: AxisTitles(
+                                      leftTitles: const AxisTitles(
                                           sideTitles:
                                               SideTitles(showTitles: false)),
-                                      topTitles: AxisTitles(
+                                      topTitles: const AxisTitles(
                                           sideTitles:
                                               SideTitles(showTitles: false)),
-                                      rightTitles: AxisTitles(
+                                      rightTitles: const AxisTitles(
                                           sideTitles:
                                               SideTitles(showTitles: false)),
                                     ),
                                     borderData: FlBorderData(show: false),
-                                    gridData: FlGridData(show: false),
+                                    gridData: const FlGridData(show: false),
                                     barGroups: sortedChartShops
                                         .asMap()
                                         .entries

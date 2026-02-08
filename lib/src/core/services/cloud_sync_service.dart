@@ -24,8 +24,9 @@ class CloudSyncService {
   // 2. CHECK LICENSE (The Kill Switch)
   // Returns: 'active', 'expired', 'blocked'
   Future<String> checkLicenseStatus() async {
-    if (_shopId == null)
+    if (_shopId == null) {
       return 'active'; // Default to active if offline/setup mode
+    }
 
     try {
       final response =

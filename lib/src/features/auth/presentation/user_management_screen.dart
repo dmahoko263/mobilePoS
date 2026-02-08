@@ -33,17 +33,17 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   // --- ADD / EDIT USER DIALOG ---
   void _showUserDialog({User? userToEdit}) {
-    final _usernameController =
+    final usernameController =
         TextEditingController(text: userToEdit?.username ?? '');
-    final _passwordController =
+    final passwordController =
         TextEditingController(text: userToEdit?.password ?? '');
 
-    UserRole _selectedRole = userToEdit?.role ?? UserRole.cashier;
-    int? _selectedShopId = userToEdit?.shopId; // Default to existing or null
+    UserRole selectedRole = userToEdit?.role ?? UserRole.cashier;
+    int? selectedShopId = userToEdit?.shopId; // Default to existing or null
 
     // If creating new and only 1 shop exists, auto-select it
     if (userToEdit == null && _availableShops.length == 1) {
-      _selectedShopId = _availableShops.first.id;
+      selectedShopId = _availableShops.first.id;
     }
 
     showDialog(
@@ -58,7 +58,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
-                      controller: _usernameController,
+                      controller: usernameController,
                       decoration: const InputDecoration(
                           labelText: 'Username',
                           prefixIcon: Icon(Icons.person),
@@ -66,7 +66,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: _passwordController,
+                      controller: passwordController,
                       obscureText: true,
                       decoration: const InputDecoration(
                           labelText: 'Password',
@@ -77,7 +77,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
                     // ROLE DROPDOWN
                     DropdownButtonFormField<UserRole>(
-                      value: _selectedRole,
+                      value: selectedRole,
                       decoration: const InputDecoration(
                           labelText: 'Role', border: OutlineInputBorder()),
                       items: const [
@@ -95,10 +95,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       ],
                       onChanged: (val) {
                         setDialogState(() {
-                          _selectedRole = val!;
+                          selectedRole = val!;
                           // Super Admins don't belong to a specific shop usually
-                          if (_selectedRole == UserRole.superAdmin) {
-                            _selectedShopId = null;
+                          if (selectedRole == UserRole.superAdmin) {
+                            selectedShopId = null;
                           }
                         });
                       },
@@ -106,9 +106,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     const SizedBox(height: 16),
 
                     // SHOP DROPDOWN (Hide if Super Admin)
-                    if (_selectedRole != UserRole.superAdmin)
+                    if (selectedRole != UserRole.superAdmin)
                       DropdownButtonFormField<int>(
-                        value: _selectedShopId,
+                        value: selectedShopId,
                         decoration: const InputDecoration(
                             labelText: 'Assign to Shop',
                             border: OutlineInputBorder(),
@@ -121,7 +121,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           );
                         }).toList(),
                         onChanged: (val) =>
-                            setDialogState(() => _selectedShopId = val),
+                            setDialogState(() => selectedShopId = val),
                       ),
                   ],
                 ),
@@ -132,10 +132,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     child: const Text('Cancel')),
                 ElevatedButton(
                   onPressed: () async {
-                    if (_usernameController.text.isNotEmpty &&
-                        _passwordController.text.isNotEmpty) {
-                      if (_selectedRole != UserRole.superAdmin &&
-                          _selectedShopId == null) {
+                    if (usernameController.text.isNotEmpty &&
+                        passwordController.text.isNotEmpty) {
+                      if (selectedRole != UserRole.superAdmin &&
+                          selectedShopId == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                                 content: Text(
@@ -154,10 +154,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       }
 
                       await _isarService.createUser(
-                          _usernameController.text,
-                          _passwordController.text,
-                          _selectedRole,
-                          _selectedShopId);
+                          usernameController.text,
+                          passwordController.text,
+                          selectedRole,
+                          selectedShopId);
 
                       Navigator.pop(context);
                       _refresh();
@@ -229,11 +229,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       body: FutureBuilder<List<User>>(
         future: _isarService.getAllUsers(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData)
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
+          }
           final users = snapshot.data!;
-          if (users.isEmpty)
+          if (users.isEmpty) {
             return const Center(child: Text('No users found.'));
+          }
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),

@@ -279,7 +279,7 @@ class PrinterService {
     List<int> bytes = [];
 
     // HELPER: Create a light dashed line instead of a solid block line
-    final String dashedLine = '--------------------------------';
+    const String dashedLine = '--------------------------------';
 
     try {
       final SettingsService settings = SettingsService();

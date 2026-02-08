@@ -32,6 +32,16 @@ class Order {
 
   @Index()
   int? shopId;
+// --- ZIMRA Fiscal Fields ---
+  bool isFiscalized = false;
+  int? fiscalDayNo;
+  int? receiptGlobalNo;
+  String? fiscalSignature; // The signature returned by ZIMRA
+  String? qrCodeData; // Data to generate the QR code
+  String? zimraVerificationUrl;
+
+  // Error tracking if offline/failed
+  bool needsFiscalRetry = false;
 }
 
 enum OrderStatus { pending, paid, synced }

@@ -110,7 +110,7 @@ class _ReceiptPreviewState extends State<ReceiptPreview> {
               const SizedBox(height: 10),
 
               // ITEMS
-              Row(
+              const Row(
                 children: [
                   Expanded(flex: 2, child: Text('Item', style: boldStyle)),
                   Expanded(
@@ -138,7 +138,8 @@ class _ReceiptPreviewState extends State<ReceiptPreview> {
                       children: [
                         Expanded(
                             flex: 2,
-                            child: Text(item.productName ?? 'Unknown',
+                            child: Text(
+                              (item.productName ?? 'Unknown') + (item.unitName != null ? ' (${item.unitName})' : ''),
                                 style: receiptStyle)),
                         Expanded(
                             flex: 1,
@@ -172,7 +173,7 @@ class _ReceiptPreviewState extends State<ReceiptPreview> {
               ],
 
               const SizedBox(height: 20),
-              Text('Thank you for your support!',
+              const Text('Thank you for your support!',
                   style: receiptStyle, textAlign: TextAlign.center),
               const SizedBox(height: 10),
               Container(
@@ -221,6 +222,8 @@ class _ReceiptPreviewState extends State<ReceiptPreview> {
         const dashWidth = 5.0;
         final dashCount = (boxWidth / (2 * dashWidth)).floor();
         return Flex(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          direction: Axis.horizontal,
           children: List.generate(
               dashCount,
               (_) => SizedBox(
@@ -228,8 +231,6 @@ class _ReceiptPreviewState extends State<ReceiptPreview> {
                   height: 1,
                   child: DecoratedBox(
                       decoration: BoxDecoration(color: Colors.black)))),
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          direction: Axis.horizontal,
         );
       },
     );

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:pos_tablet_app/src/features/products/models/product.dart';
 import 'package:pos_tablet_app/src/core/services/isar_service.dart';
 import 'package:pos_tablet_app/src/features/auth/models/shop.dart';
+import 'package:pos_tablet_app/src/features/products/models/product.dart';
+import 'package:pos_tablet_app/src/features/products/models/product_unit.dart';
 
 class AddProductScreen extends StatefulWidget {
   final Product? productToEdit;
@@ -13,19 +14,25 @@ class AddProductScreen extends StatefulWidget {
 }
 
 class _AddProductScreenState extends State<AddProductScreen> {
+  final _isarService = IsarService();
+
   final _nameController = TextEditingController();
   final _skuController = TextEditingController();
   final _priceController = TextEditingController();
   final _costController = TextEditingController();
   final _quantityController = TextEditingController();
+  final _baseUnitController = TextEditingController(text: 'piece');
   final _categoryController = TextEditingController();
-  final _supplierController = TextEditingController(); // NEW: Controller
+  final _supplierController = TextEditingController();
 
-  final _isarService = IsarService();
+  // Sell units (Single/Pack/Carton) with their own prices
+  final List<_UnitRow> _unitRows = [
+    _UnitRow(unitName: 'Single', multiplierToBase: '1', sellPrice: ''),
+  ];
 
   bool _isGlobal = false;
-  int? _selectedShopId; // The shop we are adding this to
-  List<Shop> _availableShops = []; // List for dropdown
+  int? _selectedShopId;
+  List<Shop> _availableShops = [];
 
   @override
   void initState() {
@@ -33,34 +40,74 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _loadShopsAndData();
   }
 
-  void _loadShopsAndData() async {
-    // 1. Load Shops List
+  Future<void> _loadShopsAndData() async {
     final shops = await _isarService.getAllShops();
+    if (!mounted) return;
 
     setState(() {
       _availableShops = shops;
+    });
 
-      // 2. Pre-fill Data if Editing
-      if (widget.productToEdit != null) {
-        final p = widget.productToEdit!;
-        _nameController.text = p.name;
-        _skuController.text = p.sku ?? '';
-        _priceController.text = p.price.toString();
-        _costController.text = p.costPrice.toString();
-        _quantityController.text = p.quantity.toString();
-        _categoryController.text = p.category;
-        _supplierController.text = p.supplierName ?? ''; // Pre-fill Supplier
-        _isGlobal = p.shopId == null;
-        _selectedShopId = p.shopId;
-      } else {
-        // 3. Default for New Product
-        // If not global, default to current logged-in shop
-        _selectedShopId = IsarService.currentShopId;
+    final p = widget.productToEdit;
+
+    // EDIT MODE
+    if (p != null) {
+      _nameController.text = p.name;
+      _skuController.text = p.sku ?? '';
+      _priceController.text = p.price.toString();
+      _costController.text = p.costPrice.toString();
+      _quantityController.text = p.quantity.toString();
+      _categoryController.text = p.category;
+      _supplierController.text = p.supplierName ?? '';
+      _isGlobal = p.shopId == null;
+      _selectedShopId = p.shopId;
+      _baseUnitController.text = p.baseUnit.isEmpty ? 'piece' : p.baseUnit;
+
+      final units = await _isarService.getUnitsForProduct(p.id);
+      if (!mounted) return;
+
+      setState(() {
+        _unitRows.clear();
+
+        if (units.isEmpty) {
+          _unitRows.add(
+            _UnitRow(
+              unitName: 'Single',
+              multiplierToBase: '1',
+              sellPrice: p.price.toString(),
+              barcode: p.sku ?? '',
+            ),
+          );
+        } else {
+          for (final u in units) {
+            _unitRows.add(
+              _UnitRow(
+                unitName: u.unitName,
+                multiplierToBase: u.multiplierToBase.toString(),
+                sellPrice: u.sellPrice.toString(),
+                barcode: u.barcode ?? '',
+              ),
+            );
+          }
+        }
+      });
+
+      return;
+    }
+
+    // NEW PRODUCT DEFAULTS
+    setState(() {
+      _selectedShopId = IsarService.currentShopId;
+      _baseUnitController.text = 'piece';
+      if (_unitRows.isEmpty) {
+        _unitRows.add(
+          _UnitRow(unitName: 'Single', multiplierToBase: '1', sellPrice: ''),
+        );
       }
     });
   }
 
-  void _saveToDb() async {
+  Future<void> _saveToDb() async {
     if (_nameController.text.isEmpty ||
         _priceController.text.isEmpty ||
         _quantityController.text.isEmpty) {
@@ -71,63 +118,111 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
-    // Validation: If not global, must have a shop selected
     if (!_isGlobal && _selectedShopId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Error: Select a Shop or mark as Global.')),
+        const SnackBar(content: Text('Error: Select a Shop or mark as Global.')),
       );
       return;
     }
 
-    String sku = _skuController.text.isEmpty
+    final sku = _skuController.text.isEmpty
         ? 'SKU-${DateTime.now().millisecondsSinceEpoch}'
         : _skuController.text;
 
     final product = widget.productToEdit ?? Product();
-    int currentQty = int.tryParse(_quantityController.text) ?? 0;
+    final currentQty = int.tryParse(_quantityController.text) ?? 0;
 
     product
-      ..name = _nameController.text
-      ..sku = sku
-      ..price = double.tryParse(_priceController.text) ?? 0.0
-      ..costPrice = double.tryParse(_costController.text) ?? 0.0
+      ..name = _nameController.text.trim()
+      ..sku = sku.trim()
+      ..price = double.tryParse(_priceController.text.trim()) ?? 0.0
+      ..costPrice = double.tryParse(_costController.text.trim()) ?? 0.0
       ..quantity = currentQty
-      ..category = _categoryController.text.isEmpty
+      ..baseUnit = _baseUnitController.text.trim().isEmpty
+          ? 'piece'
+          : _baseUnitController.text.trim()
+      ..category = _categoryController.text.trim().isEmpty
           ? 'General'
-          : _categoryController.text
-      ..supplierName = _supplierController.text // Save Supplier
-
-      // LOGIC: Global = null, Specific = selected ID
+          : _categoryController.text.trim()
+      ..supplierName = _supplierController.text.trim().isEmpty
+          ? null
+          : _supplierController.text.trim()
       ..shopId = _isGlobal ? null : _selectedShopId;
 
-    // IMPORTANT: Set initialQuantity for Dashboard Performance calculation
     if (widget.productToEdit == null) {
-      // For new products, initial is what we start with
       product.initialQuantity = currentQty;
     }
-    // If editing, we generally don't override initialQuantity unless you specifically want to reset stats
 
     await _isarService.saveProduct(product);
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            backgroundColor: Colors.green,
-            content: Text(widget.productToEdit == null
-                ? 'Product Created!'
-                : 'Product Updated!')),
+    // Save sell units
+    final unitsToSave = <ProductUnit>[];
+    for (final r in _unitRows) {
+      final name = r.unitName.text.trim();
+      if (name.isEmpty) continue;
+
+      final mult = int.tryParse(r.multiplierToBase.text.trim()) ?? 1;
+      final price = double.tryParse(r.sellPrice.text.trim()) ?? product.price;
+      final barcode = r.barcode.text.trim();
+
+      unitsToSave.add(
+        ProductUnit()
+          ..productId = product.id
+          ..unitName = name
+          ..multiplierToBase = mult <= 0 ? 1 : mult
+          ..sellPrice = price
+          ..barcode = barcode.isEmpty ? null : barcode,
       );
-      Navigator.pop(context);
     }
+
+    // Ensure Single exists
+    if (!unitsToSave.any((u) => u.unitName.toLowerCase() == 'single')) {
+      unitsToSave.insert(
+        0,
+        ProductUnit()
+          ..productId = product.id
+          ..unitName = 'Single'
+          ..multiplierToBase = 1
+          ..sellPrice = product.price
+          ..barcode = (product.sku?.isNotEmpty == true) ? product.sku : null,
+      );
+    }
+
+    await _isarService.upsertUnitsForProduct(product.id, unitsToSave);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green,
+        content: Text(
+          widget.productToEdit == null ? 'Product Created!' : 'Product Updated!',
+        ),
+      ),
+    );
+    Navigator.pop(context);
+  }
+
+  Widget _sectionTitle(String text, {IconData? icon}) {
+    return Row(
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 18, color: Colors.blueGrey),
+          const SizedBox(width: 8),
+        ],
+        Text(text,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isEdit = widget.productToEdit != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-            widget.productToEdit == null ? 'Add Inventory' : 'Edit Product'),
+        title: Text(isEdit ? 'Edit Product' : 'Add Inventory'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -135,13 +230,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- SHOP SELECTION SECTION ---
+              // --- SHOP SELECTION ---
               Card(
                 elevation: 0,
                 color: Colors.grey.shade50,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: Colors.grey.shade300)),
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
                 child: Column(
                   children: [
                     SwitchListTile(
@@ -157,29 +253,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       onChanged: (val) {
                         setState(() {
                           _isGlobal = val;
-                          if (_isGlobal)
-                            _selectedShopId = null; // Clear shop if global
+                          if (_isGlobal) _selectedShopId = null;
                         });
                       },
                     ),
-
-                    // Only show Dropdown if NOT Global
                     if (!_isGlobal)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                         child: DropdownButtonFormField<int>(
                           value: _selectedShopId,
                           decoration: const InputDecoration(
-                              labelText: 'Assign to Shop',
-                              border: OutlineInputBorder(),
-                              filled: true,
-                              fillColor: Colors.white),
-                          items: _availableShops.map((shop) {
-                            return DropdownMenuItem<int>(
-                              value: shop.id,
-                              child: Text(shop.name),
-                            );
-                          }).toList(),
+                            labelText: 'Assign to Shop',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          items: _availableShops
+                              .map((shop) => DropdownMenuItem<int>(
+                                    value: shop.id,
+                                    child: Text(shop.name),
+                                  ))
+                              .toList(),
                           onChanged: (val) =>
                               setState(() => _selectedShopId = val),
                           hint: const Text("Select Shop"),
@@ -188,58 +282,65 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-              // ------------------------------
 
-              const Text('Product Details',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+
+              _sectionTitle('Product Details', icon: Icons.inventory_2_outlined),
               const SizedBox(height: 16),
 
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
-                    labelText: 'Product Name',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.shopping_bag)),
+                  labelText: 'Product Name',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.shopping_bag),
+                ),
               ),
               const SizedBox(height: 16),
 
               TextField(
                 controller: _skuController,
                 decoration: const InputDecoration(
-                    labelText: 'Barcode / SKU',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.qr_code)),
+                  labelText: 'Barcode / SKU',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.qr_code),
+                ),
               ),
               const SizedBox(height: 16),
 
+              // Price + Cost (ROW OK)
               Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _priceController,
-                      keyboardType: TextInputType.number,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       decoration: const InputDecoration(
-                          labelText: 'Selling Price',
-                          border: OutlineInputBorder(),
-                          prefixText: '\$ '),
+                        labelText: 'Selling Price (Single)',
+                        border: OutlineInputBorder(),
+                        prefixText: '\$ ',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: TextField(
                       controller: _costController,
-                      keyboardType: TextInputType.number,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       decoration: const InputDecoration(
-                          labelText: 'Cost Price',
-                          border: OutlineInputBorder(),
-                          prefixText: '\$ '),
+                        labelText: 'Cost Price',
+                        border: OutlineInputBorder(),
+                        prefixText: '\$ ',
+                      ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
 
+              // Quantity + Base Unit + Category (ROW FIXED!)
               Row(
                 children: [
                   Expanded(
@@ -247,9 +348,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       controller: _quantityController,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
-                          labelText: 'Quantity',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.numbers)),
+                        labelText: 'Quantity (in base units)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.numbers),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextField(
+                      controller: _baseUnitController,
+                      decoration: const InputDecoration(
+                        labelText: 'Base Unit (e.g. piece, ml, gram)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.straighten),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -257,22 +370,137 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     child: TextField(
                       controller: _categoryController,
                       decoration: const InputDecoration(
-                          labelText: 'Category',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.category)),
+                        labelText: 'Category',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category),
+                      ),
                     ),
                   ),
                 ],
               ),
+
               const SizedBox(height: 16),
 
-              // NEW: Supplier Field
               TextField(
                 controller: _supplierController,
                 decoration: const InputDecoration(
-                    labelText: 'Supplier Name',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.local_shipping)),
+                  labelText: 'Supplier Name',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.local_shipping),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // --- SELL UNITS SECTION ---
+              Row(
+                children: [
+                  Expanded(
+                    child: _sectionTitle('Sell Units (Single / Pack / Carton)',
+                        icon: Icons.sell_outlined),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _unitRows.add(
+                          _UnitRow(
+                            unitName: 'Carton',
+                            multiplierToBase: '24',
+                            sellPrice: '',
+                          ),
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add unit'),
+                  )
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _unitRows.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) {
+                  final row = _unitRows[i];
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: row.unitName,
+                                decoration: const InputDecoration(
+                                  labelText: 'Unit name',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: row.multiplierToBase,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Multiplier to base',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: row.sellPrice,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Sell price for this unit',
+                                  border: OutlineInputBorder(),
+                                  prefixText: '\$ ',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: row.barcode,
+                                decoration: const InputDecoration(
+                                  labelText: 'Barcode (optional)',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_unitRows.length > 1)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () =>
+                                  setState(() => _unitRows.removeAt(i)),
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red),
+                              label: const Text('Remove',
+                                  style: TextStyle(color: Colors.red)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               ),
 
               const SizedBox(height: 32),
@@ -283,14 +511,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 child: ElevatedButton(
                   onPressed: _saveToDb,
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue[900],
-                      foregroundColor: Colors.white),
+                    backgroundColor: Colors.blue[900],
+                    foregroundColor: Colors.white,
+                  ),
                   child: Text(
-                      widget.productToEdit == null
-                          ? 'SAVE TO INVENTORY'
-                          : 'UPDATE PRODUCT',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
+                    isEdit ? 'UPDATE PRODUCT' : 'SAVE TO INVENTORY',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ],
@@ -299,4 +527,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
       ),
     );
   }
+}
+
+class _UnitRow {
+  final TextEditingController unitName;
+  final TextEditingController multiplierToBase;
+  final TextEditingController sellPrice;
+  final TextEditingController barcode;
+
+  _UnitRow({
+    required String unitName,
+    required String multiplierToBase,
+    required String sellPrice,
+    String barcode = '',
+  })  : unitName = TextEditingController(text: unitName),
+        multiplierToBase = TextEditingController(text: multiplierToBase),
+        sellPrice = TextEditingController(text: sellPrice),
+        barcode = TextEditingController(text: barcode);
 }

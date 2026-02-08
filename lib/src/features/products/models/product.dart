@@ -11,6 +11,11 @@ class Product {
   late double price;
   late double costPrice;
 
+  // --- NEW: Inventory base unit (smallest unit) ---
+  // e.g. piece, ml, gram
+  String baseUnit = 'piece';
+
+    // Quantity is stored in BASE units (e.g. pieces).
   late int quantity;
   int initialQuantity = 0;
 

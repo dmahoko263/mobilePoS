@@ -1,21 +1,49 @@
 import 'dart:io';
+
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
+import 'package:pos_tablet_app/src/core/payments/pesepay_api.dart';
+
 import 'package:pos_tablet_app/src/core/services/isar_service.dart';
 import 'package:pos_tablet_app/src/core/services/printer_service.dart';
+import 'package:pos_tablet_app/src/core/services/ZimraService.dart';
 import 'package:pos_tablet_app/src/core/services/settings_service.dart';
 import 'package:pos_tablet_app/src/features/orders/models/order.dart';
 import 'package:pos_tablet_app/src/features/orders/models/order_item.dart';
 import 'package:pos_tablet_app/src/features/products/models/product.dart';
+import 'package:pos_tablet_app/src/features/products/models/product_unit.dart';
 import 'package:pos_tablet_app/src/core/services/whatsapp_service.dart';
-import 'package:pos_tablet_app/src/core/services/pesepay_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class CartItem {
   final Product product;
+
+  /// What sell unit is being used for this cart line (Single / Pack / Carton)
+  final String unitName;
+
+  /// How many base units this represents (Single=1, Carton=24, etc)
+  final int multiplierToBase;
+
+  /// Price for THIS unit (can be different from multiplier * single price)
+  final double unitPrice;
+
+  /// Optional: unitId (Isar ProductUnit.id) if it exists
+  final int? unitId;
+
   int quantity;
-  CartItem({required this.product, this.quantity = 1});
-  double get total => product.price * quantity;
+
+  CartItem({
+    required this.product,
+    required this.unitName,
+    required this.multiplierToBase,
+    required this.unitPrice,
+    this.unitId,
+    this.quantity = 1,
+  });
+
+  int get baseQtyDeducted => quantity * multiplierToBase;
+
+  double get total => unitPrice * quantity;
 }
 
 class PosScreen extends StatefulWidget {
@@ -31,41 +59,45 @@ class _PosScreenState extends State<PosScreen> {
   final SettingsService _settingsService = SettingsService();
   final PrinterService _printerService = PrinterService();
 
+  // =========================
+  // PESEPAY BACKEND URL
+  // =========================
+  // TODO: replace with your backend url (LAN IP / domain)
+  static const String _apiBaseUrl = "http://YOUR_BACKEND_IP:3000";
+  PesepayApi get _pesepayApi => PesepayApi(_apiBaseUrl);
+
+  // Cache product units (single/pack/carton) by productId
+  final Map<int, List<ProductUnit>> _unitsCache = {};
+
   // Controllers
   final _customerNameController = TextEditingController();
   final _customerPhoneController = TextEditingController();
   final _customerAddressController = TextEditingController();
   final _searchController = TextEditingController();
   final _tenderedController = TextEditingController();
-  // NEW: State for the Navigation Sidebar
-  // bool _isNavSidebarOpen = false; // Start closed (or true if you prefer)
-  // NEW: Add this FocusNode
   final FocusNode _searchFocusNode = FocusNode();
 
   // State
-  List<CartItem> _cart = [];
+  final List<CartItem> _cart = [];
   String _shopName = "POS Terminal";
   BluetoothDevice? _selectedPrinter;
   double _zigRate = 0;
   double _taxRate = 0;
   double _discountAmount = 0;
   String _searchQuery = "";
-  bool _isNavSidebarOpen = false; // Start closed (or true if you prefer)
-
-  // NEW: State for expanding/shrinking sidebar
+  final bool _isNavSidebarOpen = false; // Start closed
   bool _isProductGridVisible = true;
 
   @override
   void initState() {
     super.initState();
     _loadRates();
-    // NEW: Request focus after the frame builds
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _searchFocusNode.requestFocus();
     });
   }
 
-// --- NEW: Helper for Sidebar Buttons ---
+  // --- NEW: Helper for Sidebar Buttons ---
   Widget _buildSidebarItem(
       {required IconData icon,
       required String label,
@@ -89,23 +121,46 @@ class _PosScreenState extends State<PosScreen> {
       _zigRate = zig;
       _taxRate = tax;
     });
-    // NEW: Update title if shop exists
     if (shop != null && shop.name.isNotEmpty) {
       _shopName = shop.name;
     }
   }
 
   // --- CART LOGIC ---
-  void _addToCart(Product product) {
+  Future<void> _addToCart(Product product, {CartItem? forcedCartItem}) async {
+    final cartItem = forcedCartItem ?? await _pickUnitAndBuildCartItem(product);
+    if (cartItem == null) return;
+
+    // Stock check for +1 unit
+    final baseNeededForOne = cartItem.multiplierToBase;
+    if (!await _hasEnoughStockForBaseQty(product, baseNeededForOne)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Out of Stock!')),
+        );
+      }
+      return;
+    }
+
     setState(() {
-      final index = _cart.indexWhere((item) => item.product.id == product.id);
+      final index = _cart.indexWhere((item) =>
+          item.product.id == cartItem.product.id &&
+          item.unitName == cartItem.unitName);
       if (index >= 0) {
-        _cart[index].quantity++;
+        final nextBaseNeeded =
+            (_cart[index].quantity + 1) * _cart[index].multiplierToBase;
+        if (product.quantity >= nextBaseNeeded) {
+          _cart[index].quantity++;
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Not enough stock for that quantity')),
+          );
+        }
       } else {
-        _cart.add(CartItem(product: product));
+        _cart.add(cartItem);
       }
     });
-    // NEW: Refocus immediately so the next scan works
+
     _searchFocusNode.requestFocus();
   }
 
@@ -120,9 +175,89 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+  Future<List<ProductUnit>> _getUnitsForProduct(Product product) async {
+    final pid = product.id;
+    if (_unitsCache.containsKey(pid)) return _unitsCache[pid]!;
+    final units = await _isarService.getUnitsForProduct(pid);
+    _unitsCache[pid] = units;
+    return units;
+  }
+
+  Future<CartItem?> _pickUnitAndBuildCartItem(Product product) async {
+    final units = await _getUnitsForProduct(product);
+
+    // Fallback: no units configured => treat Product.price as "Single"
+    if (units.isEmpty) {
+      return CartItem(
+        product: product,
+        unitName: 'Single',
+        multiplierToBase: 1,
+        unitPrice: product.price,
+        unitId: null,
+      );
+    }
+
+    // Only one unit => just use it
+    if (units.length == 1) {
+      final u = units.first;
+      return CartItem(
+        product: product,
+        unitName: u.unitName,
+        multiplierToBase: u.multiplierToBase,
+        unitPrice: u.sellPrice,
+        unitId: u.id,
+      );
+    }
+
+    // Multiple units => let cashier choose
+    if (!mounted) return null;
+    final selected = await showModalBottomSheet<ProductUnit>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Select unit',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text('Choose how you want to sell this item'),
+            ),
+            const Divider(height: 0),
+            ...units.map(
+              (u) => ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: Text(u.unitName),
+                subtitle: Text(
+                    '1 ${u.unitName} = ${u.multiplierToBase} ${product.baseUnit}(s)'),
+                trailing: Text('\$${u.sellPrice.toStringAsFixed(2)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () => Navigator.pop(context, u),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (selected == null) return null;
+
+    return CartItem(
+      product: product,
+      unitName: selected.unitName,
+      multiplierToBase: selected.multiplierToBase,
+      unitPrice: selected.sellPrice,
+      unitId: selected.id,
+    );
+  }
+
+  Future<bool> _hasEnoughStockForBaseQty(
+      Product product, int baseQtyNeeded) async {
+    return product.quantity >= baseQtyNeeded;
+  }
+
   @override
   void dispose() {
-    // NEW: Dispose the focus node
     _searchFocusNode.dispose();
     super.dispose();
   }
@@ -173,6 +308,7 @@ class _PosScreenState extends State<PosScreen> {
     String selectedCurrency = 'USD';
     bool isPrinting = true;
     bool sendWhatsApp = false;
+    bool fiscalize = true;
 
     _tenderedController.clear();
 
@@ -182,14 +318,12 @@ class _PosScreenState extends State<PosScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            // 1. Live Calculations
             double currentTotal =
                 selectedCurrency == 'USD' ? _totalUSD : _totalZiG;
             double tenderedInput =
                 double.tryParse(_tenderedController.text) ?? 0.0;
             double changeDue = tenderedInput - currentTotal;
 
-            // 2. Decimal Logic for Suggestions
             double decimalPart = 0.0;
             if (changeDue > 0) {
               String changeStr = changeDue.toStringAsFixed(2);
@@ -274,8 +408,9 @@ class _PosScreenState extends State<PosScreen> {
                           future:
                               _isarService.getProductsUnderPrice(decimalPart),
                           builder: (context, snapshot) {
-                            if (!snapshot.hasData || snapshot.data!.isEmpty)
+                            if (!snapshot.hasData || snapshot.data!.isEmpty) {
                               return const SizedBox.shrink();
+                            }
 
                             return Container(
                               margin: const EdgeInsets.only(top: 10),
@@ -321,23 +456,6 @@ class _PosScreenState extends State<PosScreen> {
                             );
                           },
                         ),
-
-                      const Divider(height: 30),
-
-                      TextField(
-                          controller: _customerNameController,
-                          decoration: const InputDecoration(
-                              labelText: 'Name',
-                              isDense: true,
-                              border: OutlineInputBorder())),
-                      const SizedBox(height: 8),
-                      TextField(
-                          controller: _customerPhoneController,
-                          keyboardType: TextInputType.phone,
-                          decoration: const InputDecoration(
-                              labelText: 'Phone',
-                              isDense: true,
-                              border: OutlineInputBorder())),
 
                       const Divider(height: 30),
 
@@ -393,8 +511,9 @@ class _PosScreenState extends State<PosScreen> {
                         FutureBuilder<List<BluetoothDevice>>(
                           future: _printerService.getBondedDevices(),
                           builder: (c, snapshot) {
-                            if (!snapshot.hasData)
+                            if (!snapshot.hasData) {
                               return const Text('Searching for printers...');
+                            }
                             return DropdownButton<BluetoothDevice>(
                               hint: const Text('Select Printer'),
                               value: _selectedPrinter,
@@ -416,6 +535,18 @@ class _PosScreenState extends State<PosScreen> {
                         title: const Text('Print Receipt'),
                         secondary: const Icon(Icons.print),
                       ),
+
+                      // --- FISCALIZATION TOGGLE ---
+                      CheckboxListTile(
+                        value: fiscalize,
+                        onChanged: (v) => setDialogState(() => fiscalize = v!),
+                        title: const Text('Fiscalize (ZIMRA)'),
+                        subtitle: const Text('Uploads sale to tax authority'),
+                        secondary:
+                            const Icon(Icons.cloud_upload, color: Colors.blue),
+                        activeColor: Colors.blue,
+                      ),
+
                       CheckboxListTile(
                         value: sendWhatsApp,
                         onChanged: (v) =>
@@ -436,7 +567,6 @@ class _PosScreenState extends State<PosScreen> {
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white),
                   onPressed: () {
-                    // Validate Cash
                     if (selectedMethod == 'Cash' &&
                         tenderedInput < currentTotal) {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -447,13 +577,8 @@ class _PosScreenState extends State<PosScreen> {
 
                     Navigator.pop(context);
 
-                    _finalizeSale(
-                        selectedMethod,
-                        selectedCurrency,
-                        isPrinting,
-                        sendWhatsApp,
-                        tenderedInput,
-                        changeDue > 0 ? changeDue : 0.0);
+                    _finalizeSale(selectedMethod, selectedCurrency, isPrinting,
+                        sendWhatsApp, fiscalize, tenderedInput, changeDue > 0 ? changeDue : 0.0);
                   },
                   child: const Text('COMPLETE SALE'),
                 ),
@@ -467,10 +592,12 @@ class _PosScreenState extends State<PosScreen> {
 
   // --- FINALIZE SALE ---
   void _finalizeSale(String method, String currency, bool printReceipt,
-      bool sendWhatsApp, double tendered, double change) async {
+      bool sendWhatsApp, bool fiscalize, double tendered, double change) async {
     double finalAmount = currency == 'USD' ? _totalUSD : _totalZiG;
 
-    // PESEPAY
+    // ==========================================
+    // 1) ONLINE PAYMENT (PESEPAY via BACKEND)
+    // ==========================================
     if (method == 'Pesepay') {
       showDialog(
         context: context,
@@ -479,44 +606,89 @@ class _PosScreenState extends State<PosScreen> {
       );
 
       try {
-        final pesepay = PesepayService();
-        String apiCurrency = currency == 'ZiG' ? 'ZWL' : currency;
+        final apiCurrency = currency == 'ZiG' ? 'ZWL' : currency;
 
-        final result = await pesepay.initiatePayment(
+        final shop = await _isarService.getCurrentShop();
+       final shopId = (shop?.id ?? "LOCAL").toString();
+
+
+        final phone = _customerPhoneController.text.trim();
+        if (phone.isEmpty) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Customer phone is required for online payment')));
+          return;
+        }
+
+        // Use a temporary order id for gateway initiation (real order saved after payment confirmed)
+        final tempOrderId = "TMP-${DateTime.now().millisecondsSinceEpoch}";
+
+        final result = await _pesepayApi.initiateEcocash(
+          shopId: shopId,
+          orderId: tempOrderId,
           amount: finalAmount,
-          currency: apiCurrency,
-          reason: "POS Sale by ${widget.cashierName}",
+          currencyCode: apiCurrency,
+          phone: phone,
+          email: "",
+          methodCode: "PZW201",
         );
 
         Navigator.pop(context);
 
-        if (result['redirectUrl'] != null) {
-          final Uri url = Uri.parse(result['redirectUrl']);
+        final redirectUrl = result["redirectUrl"] ?? result["redirect_url"];
+        if (redirectUrl != null && redirectUrl.toString().isNotEmpty) {
+          final Uri url = Uri.parse(redirectUrl.toString());
           if (await canLaunchUrl(url)) {
             await launchUrl(url, mode: LaunchMode.externalApplication);
           }
-          String ref =
-              result['referenceNumber'] ?? result['referenceCode'] ?? '';
-          if (ref.isNotEmpty) {
-            bool paid = await _showPaymentConfirmationDialog(ref);
-            if (!paid) return;
-          }
+        }
+
+        final ref = (result['referenceNumber'] ??
+                result['reference_number'] ??
+                result['referenceCode'] ??
+                result['reference_code'] ??
+                '')
+            .toString();
+
+        if (ref.isNotEmpty) {
+          final paid = await _showPaymentConfirmationDialog(ref);
+          if (!paid) return;
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Payment reference missing. Payment not confirmed.')));
+          return;
         }
       } catch (e) {
         Navigator.pop(context);
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Online Payment Failed: $e')));
+        }
         return;
       }
     }
 
-    // SAVE ORDER
+    // ==========================================
+    // 2) UPDATE INVENTORY (deduct stock in base units)
+    // ==========================================
+    for (final c in _cart) {
+      final baseDeduct = c.baseQtyDeducted;
+      await _isarService.adjustProductStockBaseQty(c.product.id, -baseDeduct);
+      c.product.quantity = (c.product.quantity - baseDeduct);
+      if (c.product.quantity < 0) c.product.quantity = 0;
+    }
+
+    // ==========================================
+    // 3) CREATE ORDER OBJECT
+    // ==========================================
     final orderItems = _cart
         .map((c) => OrderItem()
           ..productName = c.product.name
           ..quantity = c.quantity
-          ..priceAtSale = c.product.price)
+          ..unitName = c.unitName
+          ..baseQtyDeducted = c.baseQtyDeducted
+          ..priceAtSale = c.unitPrice
+          ..costAtSale = c.product.costPrice)
         .toList();
 
     final newOrder = Order()
@@ -534,9 +706,31 @@ class _PosScreenState extends State<PosScreen> {
           : _customerNameController.text
       ..customerPhone = _customerPhoneController.text;
 
-    await _isarService.saveOrder(newOrder);
+    // ==========================================
+    // 4) SAVE LOCALLY (get ID for fiscalization)
+    // ==========================================
+    final orderId = await _isarService.saveOrderLocal(newOrder);
+    newOrder.id = orderId;
 
-    // PRINT RECEIPT
+    // ==========================================
+    // 5) ZIMRA FISCALIZATION (OPTIONAL)
+    // ==========================================
+    String fiscalMessage = "";
+    if (fiscalize) {
+      try {
+        final zimraService = ZimraService(_isarService);
+        await zimraService.fiscalizeOrder(newOrder);
+        fiscalMessage = " & Fiscalized";
+      } catch (e) {
+        // Keep sale saved locally; mark retry inside ZimraService if you do that
+        // ignore: avoid_print
+        print("ZIMRA Fiscalization Skipped/Failed: $e");
+      }
+    }
+
+    // ==========================================
+    // 6) PRINT RECEIPT
+    // ==========================================
     if (printReceipt && (Platform.isWindows || _selectedPrinter != null)) {
       bool isConnected = await _printerService.connect(_selectedPrinter);
       if (isConnected) {
@@ -564,7 +758,9 @@ class _PosScreenState extends State<PosScreen> {
       }
     }
 
-    // WHATSAPP RECEIPT
+    // ==========================================
+    // 7) WHATSAPP RECEIPT
+    // ==========================================
     if (sendWhatsApp) {
       final phone = _customerPhoneController.text;
       if (phone.isNotEmpty) {
@@ -572,11 +768,15 @@ class _PosScreenState extends State<PosScreen> {
           await WhatsAppService().sendTextReceipt(
               phone, newOrder, currency, finalAmount,
               tendered: tendered, change: change);
-        } catch (e) {}
+        } catch (e) {
+          // ignore
+        }
       }
     }
 
-    // RESET
+    // ==========================================
+    // 8) RESET UI
+    // ==========================================
     setState(() {
       _cart.clear();
       _customerNameController.clear();
@@ -588,8 +788,8 @@ class _PosScreenState extends State<PosScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Transaction Completed!'),
+        SnackBar(
+            content: Text('Transaction Completed$fiscalMessage!'),
             backgroundColor: Colors.green),
       );
     }
@@ -611,13 +811,27 @@ class _PosScreenState extends State<PosScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final status =
-                  await PesepayService().checkTransactionStatus(reference);
-              if (status == 'SUCCESS' || status == 'PAID') {
-                Navigator.pop(context, true);
-              } else {
+              try {
+                final statusResp = await _pesepayApi.checkStatus(reference);
+                final statusStr = (statusResp["status"] ??
+                        statusResp["paymentStatus"] ??
+                        statusResp["message"] ??
+                        "")
+                    .toString()
+                    .toUpperCase();
+
+                final paid =
+                    statusStr.contains("PAID") || statusStr.contains("SUCCESS");
+
+                if (paid) {
+                  Navigator.pop(context, true);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Status: $statusStr. Try again.')));
+                }
+              } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Status: $status. Try again.')));
+                    SnackBar(content: Text('Status check failed: $e')));
               }
             },
             child: const Text('Check Status'),
@@ -628,7 +842,6 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Widget _buildProductCard(Product product) {
-    // 1. Determine State
     final bool isOutOfStock = product.quantity <= 0;
     final Color stockColor = isOutOfStock ? Colors.red : Colors.green;
     final String stockText =
@@ -640,7 +853,6 @@ class _PosScreenState extends State<PosScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () {
-          // ... (Your existing onTap logic remains unchanged) ...
           if (!isOutOfStock) {
             _addToCart(product);
           } else {
@@ -656,11 +868,10 @@ class _PosScreenState extends State<PosScreen> {
         },
         child: Padding(
           padding: const EdgeInsets.all(8.0),
-          // FIX STARTS HERE: Wrap in LayoutBuilder or SingleChildScrollView
           child: SingleChildScrollView(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min, // Important: shrink wrap content
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   isOutOfStock
@@ -670,8 +881,6 @@ class _PosScreenState extends State<PosScreen> {
                   color: isOutOfStock ? Colors.grey : Colors.blue,
                 ),
                 const SizedBox(height: 10),
-
-                // Product Name (Use Flexible/FittedBox if names are very long)
                 Text(
                   product.name,
                   textAlign: TextAlign.center,
@@ -679,16 +888,11 @@ class _PosScreenState extends State<PosScreen> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-
-                // Price
                 Text(
                   '\$${product.price.toStringAsFixed(2)}',
                   style: const TextStyle(color: Colors.black87),
                 ),
-
                 const SizedBox(height: 6),
-
-                // Stock Badge
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -701,7 +905,7 @@ class _PosScreenState extends State<PosScreen> {
                     children: [
                       Text(
                         stockText,
-                        textAlign: TextAlign.center, // Add alignment
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 12,
                           color: stockColor,
@@ -717,7 +921,7 @@ class _PosScreenState extends State<PosScreen> {
                               Icon(Icons.search, size: 10, color: stockColor),
                               const SizedBox(width: 4),
                               Text(
-                                "Find", // Shortened text to save space
+                                "Find",
                                 style:
                                     TextStyle(fontSize: 10, color: stockColor),
                               )
@@ -735,12 +939,11 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  // --- BUILD METHOD (THE MISSING PIECE) ---
+  // --- BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // NEW: Button to toggle left sidebar
         leading: IconButton(
           icon: Icon(_isProductGridVisible
               ? Icons.fullscreen_exit
@@ -757,8 +960,7 @@ class _PosScreenState extends State<PosScreen> {
           children: [
             Text(_shopName,
                 style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (_shopName !=
-                "POS Terminal") // Optional: Show 'POS Terminal' as subtitle
+            if (_shopName != "POS Terminal")
               const Text("POS Terminal", style: TextStyle(fontSize: 12)),
           ],
         ),
@@ -775,13 +977,11 @@ class _PosScreenState extends State<PosScreen> {
       ),
       body: Row(
         children: [
-          // LEFT SIDE: Product Grid (Expandable/Shrinkable)
           if (_isProductGridVisible)
             Expanded(
               flex: 6,
               child: Column(
                 children: [
-                  // Search
                   Container(
                     color: Colors.white,
                     padding: const EdgeInsets.all(8.0),
@@ -805,34 +1005,64 @@ class _PosScreenState extends State<PosScreen> {
                           setState(() => _searchQuery = value),
                       onSubmitted: (value) async {
                         if (value.isEmpty) return;
+
+                        final unit =
+                            await _isarService.getUnitByBarcode(value);
+                        if (unit != null) {
+                          final product = await _isarService
+                              .getProductById(unit.productId);
+                          if (product != null) {
+                            final baseNeeded = unit.multiplierToBase;
+                            if (product.quantity >= baseNeeded) {
+                              await _addToCart(
+                                product,
+                                forcedCartItem: CartItem(
+                                  product: product,
+                                  unitName: unit.unitName,
+                                  multiplierToBase: unit.multiplierToBase,
+                                  unitPrice: unit.sellPrice,
+                                  unitId: unit.id,
+                                ),
+                              );
+                              _searchController.clear();
+                              _searchFocusNode.requestFocus();
+                              setState(() => _searchQuery = "");
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('Out of Stock!')));
+                            }
+                          }
+                          return;
+                        }
+
                         final results =
                             await _isarService.searchProducts(value);
                         try {
                           final exactMatch =
                               results.firstWhere((p) => p.sku == value);
                           if (exactMatch.quantity > 0) {
-                            _addToCart(exactMatch);
+                            await _addToCart(exactMatch);
                             _searchController.clear();
                             _searchFocusNode.requestFocus();
                             setState(() => _searchQuery = "");
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Out of Stock!')));
+                                const SnackBar(
+                                    content: Text('Out of Stock!')));
                           }
-                        } catch (e) {}
+                        } catch (e) {
+                          // ignore
+                        }
                       },
                     ),
                   ),
 
-                  // Grid
-                  // Grid
                   Expanded(
                     child: GestureDetector(
-                      // NEW: Tapping the background refocuses the barcode scanner
                       onTap: () {
                         _searchFocusNode.requestFocus();
                       },
-                      // Ensures taps on empty space are captured
                       behavior: HitTestBehavior.translucent,
                       child: Container(
                         color: Colors.grey[100],
@@ -842,15 +1072,13 @@ class _PosScreenState extends State<PosScreen> {
                               ? _isarService.getAllProducts()
                               : _isarService.searchProducts(_searchQuery),
                           builder: (context, snapshot) {
-                            if (!snapshot.hasData || snapshot.data!.isEmpty)
-                              return const Center(
-                                  child: Text('No Items Found'));
+                            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                              return const Center(child: Text('No Items Found'));
+                            }
                             return GridView.builder(
                               gridDelegate:
                                   const SliverGridDelegateWithFixedCrossAxisCount(
                                       crossAxisCount: 3,
-                                      // FIXED: Changed from 1.1 to 0.75 to make cards taller
-                                      // and prevent 29 pixel overflow error
                                       childAspectRatio: 0.75,
                                       crossAxisSpacing: 10,
                                       mainAxisSpacing: 10),
@@ -869,8 +1097,6 @@ class _PosScreenState extends State<PosScreen> {
 
           if (_isProductGridVisible) const VerticalDivider(width: 1),
 
-          // RIGHT SIDE: Cart
-          // Logic: If left side is visible, this takes flex 4. If left side hidden, flex 1 (100%)
           Expanded(
             flex: _isProductGridVisible ? 4 : 1,
             child: Column(
@@ -894,9 +1120,10 @@ class _PosScreenState extends State<PosScreen> {
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)));
 
   Widget _buildCartList() {
-    if (_cart.isEmpty)
+    if (_cart.isEmpty) {
       return const Center(
           child: Text('Cart is empty', style: TextStyle(color: Colors.grey)));
+    }
     return ListView.separated(
       padding: const EdgeInsets.all(8),
       itemCount: _cart.length,
@@ -904,10 +1131,10 @@ class _PosScreenState extends State<PosScreen> {
       itemBuilder: (context, index) {
         final item = _cart[index];
         return ListTile(
-          title: Text(item.product.name,
+          title: Text('${item.product.name} (${item.unitName})',
               style: const TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text(
-              '${item.quantity} x \$${item.product.price.toStringAsFixed(2)}'),
+              '${item.quantity} x \$${item.unitPrice.toStringAsFixed(2)}'),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             Text('\$${item.total.toStringAsFixed(2)}',
                 style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -927,8 +1154,6 @@ class _PosScreenState extends State<PosScreen> {
       ]),
       child: Column(children: [
         _buildSummaryRow('Subtotal', _subtotal),
-
-        // ... (Discount logic remains unchanged) ...
         InkWell(
             onTap: _showDiscountDialog,
             child: Row(
@@ -938,12 +1163,9 @@ class _PosScreenState extends State<PosScreen> {
                   Text('- \$${_discountAmount.toStringAsFixed(2)}',
                       style: const TextStyle(color: Colors.red))
                 ])),
-
         const SizedBox(height: 5),
         _buildSummaryRow('Tax (${_taxRate.toStringAsFixed(1)}%)', _taxAmount),
         const Divider(),
-
-        // FIX: Total USD Row
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Flexible(
             child: Text('TOTAL USD',
@@ -960,8 +1182,6 @@ class _PosScreenState extends State<PosScreen> {
             ),
           )
         ]),
-
-        // FIX: Total ZiG Row
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Flexible(
             child: Text('TOTAL ZiG',
@@ -983,9 +1203,7 @@ class _PosScreenState extends State<PosScreen> {
             ),
           )
         ]),
-
         const SizedBox(height: 16),
-        // ... (Button remains unchanged) ...
         SizedBox(
             width: double.infinity,
             height: 55,
@@ -998,6 +1216,7 @@ class _PosScreenState extends State<PosScreen> {
                     style:
                         TextStyle(fontSize: 18, fontWeight: FontWeight.bold))))
       ]));
+
   Widget _buildSummaryRow(String label, double amount) => Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -1014,11 +1233,11 @@ class StockAvailabilityDialog extends StatelessWidget {
   final IsarService service;
 
   const StockAvailabilityDialog({
-    Key? key,
+    super.key,
     required this.productName,
     required this.productSku,
     required this.service,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1031,8 +1250,7 @@ class StockAvailabilityDialog extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Branch Availability",
-                    style: TextStyle(fontSize: 16)),
+                const Text("Branch Availability", style: TextStyle(fontSize: 16)),
                 Text(productName,
                     style: const TextStyle(fontSize: 12, color: Colors.grey)),
               ],
@@ -1041,7 +1259,7 @@ class StockAvailabilityDialog extends StatelessWidget {
         ],
       ),
       content: SizedBox(
-        width: 450, // Fixed width for tablet dialogs
+        width: 450,
         height: 300,
         child: FutureBuilder<List<Map<String, dynamic>>>(
           future: service.checkOtherBranches(productName, productSku),

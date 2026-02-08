@@ -8,4 +8,7 @@ class OrderItem {
   int? quantity;
   double? priceAtSale;
   double? costAtSale; // New: To calculate profit later
+  String? unitName;        // "Single", "Carton", etc
+int? baseQtyDeducted;    // how many base units were removed from stock
+
 }

@@ -37,47 +37,82 @@ const OrderSchema = CollectionSchema(
       name: r'customerPhone',
       type: IsarType.string,
     ),
-    r'items': PropertySchema(
+    r'fiscalDayNo': PropertySchema(
       id: 4,
+      name: r'fiscalDayNo',
+      type: IsarType.long,
+    ),
+    r'fiscalSignature': PropertySchema(
+      id: 5,
+      name: r'fiscalSignature',
+      type: IsarType.string,
+    ),
+    r'isFiscalized': PropertySchema(
+      id: 6,
+      name: r'isFiscalized',
+      type: IsarType.bool,
+    ),
+    r'items': PropertySchema(
+      id: 7,
       name: r'items',
       type: IsarType.objectList,
       target: r'OrderItem',
     ),
+    r'needsFiscalRetry': PropertySchema(
+      id: 8,
+      name: r'needsFiscalRetry',
+      type: IsarType.bool,
+    ),
     r'orderDate': PropertySchema(
-      id: 5,
+      id: 9,
       name: r'orderDate',
       type: IsarType.dateTime,
     ),
     r'paymentCurrency': PropertySchema(
-      id: 6,
+      id: 10,
       name: r'paymentCurrency',
       type: IsarType.string,
     ),
     r'paymentMethod': PropertySchema(
-      id: 7,
+      id: 11,
       name: r'paymentMethod',
       type: IsarType.string,
     ),
+    r'qrCodeData': PropertySchema(
+      id: 12,
+      name: r'qrCodeData',
+      type: IsarType.string,
+    ),
+    r'receiptGlobalNo': PropertySchema(
+      id: 13,
+      name: r'receiptGlobalNo',
+      type: IsarType.long,
+    ),
     r'shopId': PropertySchema(
-      id: 8,
+      id: 14,
       name: r'shopId',
       type: IsarType.long,
     ),
     r'status': PropertySchema(
-      id: 9,
+      id: 15,
       name: r'status',
       type: IsarType.byte,
       enumMap: _OrderstatusEnumValueMap,
     ),
     r'tenderedAmount': PropertySchema(
-      id: 10,
+      id: 16,
       name: r'tenderedAmount',
       type: IsarType.double,
     ),
     r'totalAmount': PropertySchema(
-      id: 11,
+      id: 17,
       name: r'totalAmount',
       type: IsarType.double,
+    ),
+    r'zimraVerificationUrl': PropertySchema(
+      id: 18,
+      name: r'zimraVerificationUrl',
+      type: IsarType.string,
     )
   },
   estimateSize: _orderEstimateSize,
@@ -133,6 +168,12 @@ int _orderEstimateSize(
     }
   }
   {
+    final value = object.fiscalSignature;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
     final list = object.items;
     if (list != null) {
       bytesCount += 3 + list.length * 3;
@@ -158,6 +199,18 @@ int _orderEstimateSize(
       bytesCount += 3 + value.length * 3;
     }
   }
+  {
+    final value = object.qrCodeData;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.zimraVerificationUrl;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   return bytesCount;
 }
 
@@ -171,19 +224,26 @@ void _orderSerialize(
   writer.writeDouble(offsets[1], object.changeAmount);
   writer.writeString(offsets[2], object.customerName);
   writer.writeString(offsets[3], object.customerPhone);
+  writer.writeLong(offsets[4], object.fiscalDayNo);
+  writer.writeString(offsets[5], object.fiscalSignature);
+  writer.writeBool(offsets[6], object.isFiscalized);
   writer.writeObjectList<OrderItem>(
-    offsets[4],
+    offsets[7],
     allOffsets,
     OrderItemSchema.serialize,
     object.items,
   );
-  writer.writeDateTime(offsets[5], object.orderDate);
-  writer.writeString(offsets[6], object.paymentCurrency);
-  writer.writeString(offsets[7], object.paymentMethod);
-  writer.writeLong(offsets[8], object.shopId);
-  writer.writeByte(offsets[9], object.status.index);
-  writer.writeDouble(offsets[10], object.tenderedAmount);
-  writer.writeDouble(offsets[11], object.totalAmount);
+  writer.writeBool(offsets[8], object.needsFiscalRetry);
+  writer.writeDateTime(offsets[9], object.orderDate);
+  writer.writeString(offsets[10], object.paymentCurrency);
+  writer.writeString(offsets[11], object.paymentMethod);
+  writer.writeString(offsets[12], object.qrCodeData);
+  writer.writeLong(offsets[13], object.receiptGlobalNo);
+  writer.writeLong(offsets[14], object.shopId);
+  writer.writeByte(offsets[15], object.status.index);
+  writer.writeDouble(offsets[16], object.tenderedAmount);
+  writer.writeDouble(offsets[17], object.totalAmount);
+  writer.writeString(offsets[18], object.zimraVerificationUrl);
 }
 
 Order _orderDeserialize(
@@ -197,21 +257,29 @@ Order _orderDeserialize(
   object.changeAmount = reader.readDoubleOrNull(offsets[1]);
   object.customerName = reader.readStringOrNull(offsets[2]);
   object.customerPhone = reader.readStringOrNull(offsets[3]);
+  object.fiscalDayNo = reader.readLongOrNull(offsets[4]);
+  object.fiscalSignature = reader.readStringOrNull(offsets[5]);
   object.id = id;
+  object.isFiscalized = reader.readBool(offsets[6]);
   object.items = reader.readObjectList<OrderItem>(
-    offsets[4],
+    offsets[7],
     OrderItemSchema.deserialize,
     allOffsets,
     OrderItem(),
   );
-  object.orderDate = reader.readDateTime(offsets[5]);
-  object.paymentCurrency = reader.readStringOrNull(offsets[6]);
-  object.paymentMethod = reader.readStringOrNull(offsets[7]);
-  object.shopId = reader.readLongOrNull(offsets[8]);
-  object.status = _OrderstatusValueEnumMap[reader.readByteOrNull(offsets[9])] ??
-      OrderStatus.pending;
-  object.tenderedAmount = reader.readDoubleOrNull(offsets[10]);
-  object.totalAmount = reader.readDouble(offsets[11]);
+  object.needsFiscalRetry = reader.readBool(offsets[8]);
+  object.orderDate = reader.readDateTime(offsets[9]);
+  object.paymentCurrency = reader.readStringOrNull(offsets[10]);
+  object.paymentMethod = reader.readStringOrNull(offsets[11]);
+  object.qrCodeData = reader.readStringOrNull(offsets[12]);
+  object.receiptGlobalNo = reader.readLongOrNull(offsets[13]);
+  object.shopId = reader.readLongOrNull(offsets[14]);
+  object.status =
+      _OrderstatusValueEnumMap[reader.readByteOrNull(offsets[15])] ??
+          OrderStatus.pending;
+  object.tenderedAmount = reader.readDoubleOrNull(offsets[16]);
+  object.totalAmount = reader.readDouble(offsets[17]);
+  object.zimraVerificationUrl = reader.readStringOrNull(offsets[18]);
   return object;
 }
 
@@ -231,27 +299,41 @@ P _orderDeserializeProp<P>(
     case 3:
       return (reader.readStringOrNull(offset)) as P;
     case 4:
+      return (reader.readLongOrNull(offset)) as P;
+    case 5:
+      return (reader.readStringOrNull(offset)) as P;
+    case 6:
+      return (reader.readBool(offset)) as P;
+    case 7:
       return (reader.readObjectList<OrderItem>(
         offset,
         OrderItemSchema.deserialize,
         allOffsets,
         OrderItem(),
       )) as P;
-    case 5:
-      return (reader.readDateTime(offset)) as P;
-    case 6:
-      return (reader.readStringOrNull(offset)) as P;
-    case 7:
-      return (reader.readStringOrNull(offset)) as P;
     case 8:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 9:
+      return (reader.readDateTime(offset)) as P;
+    case 10:
+      return (reader.readStringOrNull(offset)) as P;
+    case 11:
+      return (reader.readStringOrNull(offset)) as P;
+    case 12:
+      return (reader.readStringOrNull(offset)) as P;
+    case 13:
+      return (reader.readLongOrNull(offset)) as P;
+    case 14:
+      return (reader.readLongOrNull(offset)) as P;
+    case 15:
       return (_OrderstatusValueEnumMap[reader.readByteOrNull(offset)] ??
           OrderStatus.pending) as P;
-    case 10:
+    case 16:
       return (reader.readDoubleOrNull(offset)) as P;
-    case 11:
+    case 17:
       return (reader.readDouble(offset)) as P;
+    case 18:
+      return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -988,6 +1070,222 @@ extension OrderQueryFilter on QueryBuilder<Order, Order, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalDayNoIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'fiscalDayNo',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalDayNoIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'fiscalDayNo',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalDayNoEqualTo(
+      int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'fiscalDayNo',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalDayNoGreaterThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'fiscalDayNo',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalDayNoLessThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'fiscalDayNo',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalDayNoBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'fiscalDayNo',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'fiscalSignature',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'fiscalSignature',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'fiscalSignature',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'fiscalSignature',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'fiscalSignature',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'fiscalSignature',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'fiscalSignature',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'fiscalSignature',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'fiscalSignature',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'fiscalSignature',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> fiscalSignatureIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'fiscalSignature',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      fiscalSignatureIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'fiscalSignature',
+        value: '',
+      ));
+    });
+  }
+
   QueryBuilder<Order, Order, QAfterFilterCondition> idEqualTo(Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
@@ -1036,6 +1334,16 @@ extension OrderQueryFilter on QueryBuilder<Order, Order, QFilterCondition> {
         includeLower: includeLower,
         upper: upper,
         includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> isFiscalizedEqualTo(
+      bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isFiscalized',
+        value: value,
       ));
     });
   }
@@ -1137,6 +1445,16 @@ extension OrderQueryFilter on QueryBuilder<Order, Order, QFilterCondition> {
         upper,
         includeUpper,
       );
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> needsFiscalRetryEqualTo(
+      bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'needsFiscalRetry',
+        value: value,
+      ));
     });
   }
 
@@ -1486,6 +1804,221 @@ extension OrderQueryFilter on QueryBuilder<Order, Order, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'qrCodeData',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'qrCodeData',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'qrCodeData',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'qrCodeData',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'qrCodeData',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'qrCodeData',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'qrCodeData',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'qrCodeData',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'qrCodeData',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'qrCodeData',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'qrCodeData',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> qrCodeDataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'qrCodeData',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> receiptGlobalNoIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'receiptGlobalNo',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> receiptGlobalNoIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'receiptGlobalNo',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> receiptGlobalNoEqualTo(
+      int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'receiptGlobalNo',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> receiptGlobalNoGreaterThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'receiptGlobalNo',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> receiptGlobalNoLessThan(
+    int? value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'receiptGlobalNo',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> receiptGlobalNoBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'receiptGlobalNo',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
   QueryBuilder<Order, Order, QAfterFilterCondition> shopIdIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(const FilterCondition.isNull(
@@ -1746,6 +2279,159 @@ extension OrderQueryFilter on QueryBuilder<Order, Order, QFilterCondition> {
       ));
     });
   }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'zimraVerificationUrl',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'zimraVerificationUrl',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> zimraVerificationUrlEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'zimraVerificationUrl',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'zimraVerificationUrl',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'zimraVerificationUrl',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> zimraVerificationUrlBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'zimraVerificationUrl',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'zimraVerificationUrl',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'zimraVerificationUrl',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'zimraVerificationUrl',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition> zimraVerificationUrlMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'zimraVerificationUrl',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'zimraVerificationUrl',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterFilterCondition>
+      zimraVerificationUrlIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'zimraVerificationUrl',
+        value: '',
+      ));
+    });
+  }
 }
 
 extension OrderQueryObject on QueryBuilder<Order, Order, QFilterCondition> {
@@ -1808,6 +2494,54 @@ extension OrderQuerySortBy on QueryBuilder<Order, Order, QSortBy> {
     });
   }
 
+  QueryBuilder<Order, Order, QAfterSortBy> sortByFiscalDayNo() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalDayNo', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByFiscalDayNoDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalDayNo', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByFiscalSignature() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalSignature', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByFiscalSignatureDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalSignature', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByIsFiscalized() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isFiscalized', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByIsFiscalizedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isFiscalized', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByNeedsFiscalRetry() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'needsFiscalRetry', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByNeedsFiscalRetryDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'needsFiscalRetry', Sort.desc);
+    });
+  }
+
   QueryBuilder<Order, Order, QAfterSortBy> sortByOrderDate() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'orderDate', Sort.asc);
@@ -1841,6 +2575,30 @@ extension OrderQuerySortBy on QueryBuilder<Order, Order, QSortBy> {
   QueryBuilder<Order, Order, QAfterSortBy> sortByPaymentMethodDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'paymentMethod', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByQrCodeData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'qrCodeData', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByQrCodeDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'qrCodeData', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByReceiptGlobalNo() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'receiptGlobalNo', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByReceiptGlobalNoDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'receiptGlobalNo', Sort.desc);
     });
   }
 
@@ -1889,6 +2647,18 @@ extension OrderQuerySortBy on QueryBuilder<Order, Order, QSortBy> {
   QueryBuilder<Order, Order, QAfterSortBy> sortByTotalAmountDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'totalAmount', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByZimraVerificationUrl() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'zimraVerificationUrl', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> sortByZimraVerificationUrlDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'zimraVerificationUrl', Sort.desc);
     });
   }
 }
@@ -1942,6 +2712,30 @@ extension OrderQuerySortThenBy on QueryBuilder<Order, Order, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Order, Order, QAfterSortBy> thenByFiscalDayNo() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalDayNo', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByFiscalDayNoDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalDayNo', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByFiscalSignature() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalSignature', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByFiscalSignatureDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'fiscalSignature', Sort.desc);
+    });
+  }
+
   QueryBuilder<Order, Order, QAfterSortBy> thenById() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'id', Sort.asc);
@@ -1951,6 +2745,30 @@ extension OrderQuerySortThenBy on QueryBuilder<Order, Order, QSortThenBy> {
   QueryBuilder<Order, Order, QAfterSortBy> thenByIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByIsFiscalized() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isFiscalized', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByIsFiscalizedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isFiscalized', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByNeedsFiscalRetry() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'needsFiscalRetry', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByNeedsFiscalRetryDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'needsFiscalRetry', Sort.desc);
     });
   }
 
@@ -1987,6 +2805,30 @@ extension OrderQuerySortThenBy on QueryBuilder<Order, Order, QSortThenBy> {
   QueryBuilder<Order, Order, QAfterSortBy> thenByPaymentMethodDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'paymentMethod', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByQrCodeData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'qrCodeData', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByQrCodeDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'qrCodeData', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByReceiptGlobalNo() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'receiptGlobalNo', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByReceiptGlobalNoDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'receiptGlobalNo', Sort.desc);
     });
   }
 
@@ -2037,6 +2879,18 @@ extension OrderQuerySortThenBy on QueryBuilder<Order, Order, QSortThenBy> {
       return query.addSortBy(r'totalAmount', Sort.desc);
     });
   }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByZimraVerificationUrl() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'zimraVerificationUrl', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Order, Order, QAfterSortBy> thenByZimraVerificationUrlDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'zimraVerificationUrl', Sort.desc);
+    });
+  }
 }
 
 extension OrderQueryWhereDistinct on QueryBuilder<Order, Order, QDistinct> {
@@ -2068,6 +2922,32 @@ extension OrderQueryWhereDistinct on QueryBuilder<Order, Order, QDistinct> {
     });
   }
 
+  QueryBuilder<Order, Order, QDistinct> distinctByFiscalDayNo() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'fiscalDayNo');
+    });
+  }
+
+  QueryBuilder<Order, Order, QDistinct> distinctByFiscalSignature(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'fiscalSignature',
+          caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Order, Order, QDistinct> distinctByIsFiscalized() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isFiscalized');
+    });
+  }
+
+  QueryBuilder<Order, Order, QDistinct> distinctByNeedsFiscalRetry() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'needsFiscalRetry');
+    });
+  }
+
   QueryBuilder<Order, Order, QDistinct> distinctByOrderDate() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'orderDate');
@@ -2087,6 +2967,19 @@ extension OrderQueryWhereDistinct on QueryBuilder<Order, Order, QDistinct> {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'paymentMethod',
           caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Order, Order, QDistinct> distinctByQrCodeData(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'qrCodeData', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Order, Order, QDistinct> distinctByReceiptGlobalNo() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'receiptGlobalNo');
     });
   }
 
@@ -2111,6 +3004,14 @@ extension OrderQueryWhereDistinct on QueryBuilder<Order, Order, QDistinct> {
   QueryBuilder<Order, Order, QDistinct> distinctByTotalAmount() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'totalAmount');
+    });
+  }
+
+  QueryBuilder<Order, Order, QDistinct> distinctByZimraVerificationUrl(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'zimraVerificationUrl',
+          caseSensitive: caseSensitive);
     });
   }
 }
@@ -2146,9 +3047,33 @@ extension OrderQueryProperty on QueryBuilder<Order, Order, QQueryProperty> {
     });
   }
 
+  QueryBuilder<Order, int?, QQueryOperations> fiscalDayNoProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'fiscalDayNo');
+    });
+  }
+
+  QueryBuilder<Order, String?, QQueryOperations> fiscalSignatureProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'fiscalSignature');
+    });
+  }
+
+  QueryBuilder<Order, bool, QQueryOperations> isFiscalizedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isFiscalized');
+    });
+  }
+
   QueryBuilder<Order, List<OrderItem>?, QQueryOperations> itemsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'items');
+    });
+  }
+
+  QueryBuilder<Order, bool, QQueryOperations> needsFiscalRetryProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'needsFiscalRetry');
     });
   }
 
@@ -2167,6 +3092,18 @@ extension OrderQueryProperty on QueryBuilder<Order, Order, QQueryProperty> {
   QueryBuilder<Order, String?, QQueryOperations> paymentMethodProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'paymentMethod');
+    });
+  }
+
+  QueryBuilder<Order, String?, QQueryOperations> qrCodeDataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'qrCodeData');
+    });
+  }
+
+  QueryBuilder<Order, int?, QQueryOperations> receiptGlobalNoProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'receiptGlobalNo');
     });
   }
 
@@ -2191,6 +3128,13 @@ extension OrderQueryProperty on QueryBuilder<Order, Order, QQueryProperty> {
   QueryBuilder<Order, double, QQueryOperations> totalAmountProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'totalAmount');
+    });
+  }
+
+  QueryBuilder<Order, String?, QQueryOperations>
+      zimraVerificationUrlProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'zimraVerificationUrl');
     });
   }
 }

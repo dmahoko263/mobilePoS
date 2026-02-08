@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pos_tablet_app/src/core/services/isar_service.dart';
 import 'package:pos_tablet_app/src/features/products/models/product.dart';
+import 'package:pos_tablet_app/src/features/products/models/product_unit.dart';
 import 'package:pos_tablet_app/src/features/auth/models/shop.dart'; // Import Shop
 import 'package:pos_tablet_app/src/features/products/presentation/add_product_screen.dart';
 
@@ -41,6 +42,19 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
     String reason = "Damaged";
     bool isWriteOff = true;
 
+    // NEW: sell/stock units (Single/Carton/Pack)
+    final unitsRaw = await _isarService.getUnitsForProduct(product.id);
+    final units = unitsRaw.isNotEmpty
+        ? unitsRaw
+        : [
+            ProductUnit()
+              ..productId = product.id
+              ..unitName = 'Single'
+              ..multiplierToBase = 1
+              ..sellPrice = product.price
+          ];
+    ProductUnit selectedUnit = units.first;
+
     await showDialog(
       context: context,
       builder: (context) {
@@ -77,6 +91,19 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<ProductUnit>(
+                  value: selectedUnit,
+                  items: units
+                      .map((u) => DropdownMenuItem(
+                            value: u,
+                            child: Text('${u.unitName} (x${u.multiplierToBase})'),
+                          ))
+                      .toList(),
+                  onChanged: (u) => setDialogState(() => selectedUnit = u!),
+                  decoration: const InputDecoration(labelText: 'Unit'),
+                ),
+
                 const SizedBox(height: 20),
                 TextField(
                   controller: qtyController,
@@ -114,10 +141,12 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                   int qty = int.tryParse(qtyController.text) ?? 0;
                   if (qty <= 0) return;
 
+                  final baseQty = qty * selectedUnit.multiplierToBase;
+
                   if (isWriteOff) {
-                    product.quantity -= qty;
+                    product.quantity -= baseQty;
                   } else {
-                    product.quantity += qty;
+                    product.quantity += baseQty;
                   }
 
                   await _isarService.saveProduct(product);
@@ -274,11 +303,12 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                 ..._shops.map((shop) {
                   final products = groupedProducts[shop.id] ?? [];
                   // If search is active, hide empty shops. If search is empty, show all shops.
-                  if (products.isEmpty && _searchQuery.isNotEmpty)
+                  if (products.isEmpty && _searchQuery.isNotEmpty) {
                     return const SizedBox.shrink();
+                  }
 
                   return _buildShopSection(shop.name, products);
-                }).toList(),
+                }),
               ],
             ),
           );
@@ -325,16 +355,16 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         children: [
           Container(
             width: double.infinity,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.white,
               borderRadius:
-                  const BorderRadius.vertical(bottom: Radius.circular(12)),
+                  BorderRadius.vertical(bottom: Radius.circular(12)),
             ),
             child: Theme(
               data:
                   Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: DataTable(
-                headingRowColor: MaterialStateProperty.all(Colors.grey[50]),
+                headingRowColor: WidgetStateProperty.all(Colors.grey[50]),
                 columns: const [
                   DataColumn(label: Text("Product")),
                   DataColumn(label: Text("Category")),

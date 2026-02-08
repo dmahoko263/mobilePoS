@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pos_tablet_app/src/features/products/models/product.dart';
+import 'package:pos_tablet_app/src/features/products/models/product_unit.dart';
 import 'package:pos_tablet_app/src/features/orders/models/order.dart';
 import 'package:pos_tablet_app/src/features/auth/models/user.dart';
 import 'package:pos_tablet_app/src/features/auth/models/shop.dart';
+import 'package:pos_tablet_app/src/features/fiscal/models/fiscal_config.dart';
 
 class IsarService {
   late Future<Isar> db;
@@ -21,7 +23,14 @@ class IsarService {
     if (Isar.instanceNames.isEmpty) {
       final dir = await getApplicationDocumentsDirectory();
       return await Isar.open(
-        [ProductSchema, OrderSchema, UserSchema, ShopSchema],
+        [
+          ProductSchema,
+          ProductUnitSchema,
+          OrderSchema,
+          UserSchema,
+          ShopSchema,
+          FiscalConfigSchema
+        ],
         directory: dir.path,
         inspector: true,
       );
@@ -184,15 +193,13 @@ class IsarService {
   // -------------------------
   // ORDER MANAGEMENT
   // -------------------------
-  Future<void> saveOrder(Order newOrder) async {
+  // In IsarService
+  Future<Id> saveOrderLocal(Order newOrder) async {
     final isar = await db;
     if (currentShopId != null) newOrder.shopId = currentShopId;
 
-    await isar.writeTxn(() async {
-      await isar.orders.put(newOrder);
-
-      // Note: We handle Stock Decrement in the UI logic or here.
-      // If logic is moved here fully, ensure it doesn't double count.
+    return await isar.writeTxn(() async {
+      return await isar.orders.put(newOrder);
     });
   }
 
@@ -279,18 +286,22 @@ class IsarService {
       final Map<String, dynamic> data = jsonDecode(jsonString);
 
       await isar.writeTxn(() async {
-        if (data['shops'] != null)
+        if (data['shops'] != null) {
           await isar.shops
               .importJson(List<Map<String, dynamic>>.from(data['shops']));
-        if (data['users'] != null)
+        }
+        if (data['users'] != null) {
           await isar.users
               .importJson(List<Map<String, dynamic>>.from(data['users']));
-        if (data['products'] != null)
+        }
+        if (data['products'] != null) {
           await isar.products
               .importJson(List<Map<String, dynamic>>.from(data['products']));
-        if (data['orders'] != null)
+        }
+        if (data['orders'] != null) {
           await isar.orders
               .importJson(List<Map<String, dynamic>>.from(data['orders']));
+        }
       });
     } catch (e) {
       print("Restore Error: $e");
@@ -315,5 +326,48 @@ class IsarService {
           .shopIdEqualTo(currentShopId)
           .watch(fireImmediately: true);
     }
+  }
+
+
+
+  // -------------------------
+  // PRODUCT UNIT MANAGEMENT (Bulk/Carton/Single)
+  // -------------------------
+  Future<List<ProductUnit>> getUnitsForProduct(int productId) async {
+    final isar = await db;
+    return await isar.productUnits
+        .filter()
+        .productIdEqualTo(productId)
+        .sortByUnitName()
+        .findAll();
+  }
+
+  Future<ProductUnit?> getUnitByBarcode(String barcode) async {
+    final isar = await db;
+    return await isar.productUnits.filter().barcodeEqualTo(barcode).findFirst();
+  }
+
+  Future<void> upsertUnitsForProduct(int productId, List<ProductUnit> units) async {
+    final isar = await db;
+    await isar.writeTxn(() async {
+      final old = await isar.productUnits.filter().productIdEqualTo(productId).findAll();
+      await isar.productUnits.deleteAll(old.map((e) => e.id).toList());
+
+      for (final u in units) {
+        u.productId = productId;
+      }
+      await isar.productUnits.putAll(units);
+    });
+  }
+
+  Future<void> adjustProductStockBaseQty(int productId, int deltaBaseQty) async {
+    final isar = await db;
+    await isar.writeTxn(() async {
+      final p = await isar.products.get(productId);
+      if (p == null) return;
+      p.quantity = (p.quantity + deltaBaseQty);
+      if (p.quantity < 0) p.quantity = 0;
+      await isar.products.put(p);
+    });
   }
 }
